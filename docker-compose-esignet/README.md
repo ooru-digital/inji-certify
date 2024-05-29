@@ -53,4 +53,3 @@ To invoke the authorize endpoint of esignet UI to start OIDC/VCI flow, use the b
 http://localhost:3000/authorize?nonce=ere973eieljznge2311&state=eree2311&client_id=health-service-client&redirect_uri=https://healthservices.com/callback&scope=openid&response_type=code&acr_values=mosip:idp:acr:generated-code&claims=%7B%22userinfo%22:%7B%22name%22:%7B%22essential%22:false%7D,%22phone_number%22:%7B%22essential%22:true%7D%7D,%22id_token%22:%7B%7D%7D&claims_locales=en&display=page&state=consent&ui_locales=en-IN
 
 ```Note: Change the value of client_id, redirect_uri, acr_values and claims as per your requirement in the above URL.```
-
