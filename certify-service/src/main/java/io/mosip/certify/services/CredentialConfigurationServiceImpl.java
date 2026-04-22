@@ -13,6 +13,7 @@ import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.exception.CredentialConfigException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.attributes.Claims;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.certify.utils.CredentialConfigMapper;
 import io.mosip.certify.validators.credentialconfigvalidators.LdpVcCredentialConfigValidator;
@@ -25,8 +26,8 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -41,6 +42,9 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
 
     @Value("${mosip.certify.domain.url}")
     private String credentialIssuer;
+
+    @Value("${mosip.certify.allow-c-nonce:false}")
+    private boolean allowCNonce;
 
     @Value("${mosip.certify.authorization.url}")
     private String authUrl;
@@ -322,6 +326,11 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         metadata.setAuthorizationServers(resolveAuthorizationServers());
         metadata.setCredentialEndpoint(buildCredentialEndpoint());
         metadata.setDisplay(issuerDisplay);
+        if (allowCNonce) metadata.setNonceEndpoint(buildNonceEndpoint());
+    }
+
+    private String buildNonceEndpoint() {
+        return credentialIssuer + servletPath + "/nonce";
     }
 
     private List<String> resolveAuthorizationServers() {
@@ -355,29 +364,49 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         credentialConfigurationSupported.setScope(credentialConfigurationDTO.getScope());
         credentialConfigurationSupported.setCryptographicBindingMethodsSupported(credentialConfig.getCryptographicBindingMethodsSupported());
         credentialConfigurationSupported.setProofTypesSupported(credentialConfig.getProofTypesSupported());
-        credentialConfigurationSupported.setDisplay(credentialConfigurationDTO.getMetaDataDisplay());
-        credentialConfigurationSupported.setOrder(credentialConfigurationDTO.getDisplayOrder());
 
+        CredentialMetadataDTO credentialMetadataDTO = new CredentialMetadataDTO();
+        credentialMetadataDTO.setDisplay(credentialConfigurationDTO.getMetaDataDisplay());
         if (VCFormats.LDP_VC.equals(credentialConfig.getCredentialFormat())) {
-            CredentialDefinition credentialDefinition = new CredentialDefinition();
-            credentialDefinition.setType(credentialConfigurationDTO.getCredentialTypes());
-            credentialDefinition.setContext(credentialConfigurationDTO.getContextURLs());
-            if (credentialConfig.getCredentialSubject() != null) {
-                credentialDefinition.setCredentialSubject(new HashMap<>(credentialConfig.getCredentialSubject()));
-            }
-            credentialConfigurationSupported.setCredentialDefinition(credentialDefinition);
+            credentialMetadataDTO.setClaims(mapStandardClaims(credentialConfig.getClaims()));
         } else if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
-            if (credentialConfig.getMsoMdocClaims() != null) {
-                credentialConfigurationSupported.setClaims(new HashMap<>(new HashMap<>(credentialConfig.getMsoMdocClaims())));
-            }
             credentialConfigurationSupported.setDocType(credentialConfig.getDocType());
+            credentialMetadataDTO.setClaims(mapMDocClaims(credentialConfig.getMsoMdocClaims()));
         } else if (VCFormats.VC_SD_JWT.equals(credentialConfig.getCredentialFormat())) {
-            if (credentialConfig.getSdJwtClaims() != null) {
-                credentialConfigurationSupported.setClaims(new HashMap<>(credentialConfig.getSdJwtClaims()));
-            }
             credentialConfigurationSupported.setVct(credentialConfig.getSdJwtVct());
+            credentialMetadataDTO.setClaims(mapStandardClaims(credentialConfig.getSdJwtClaims()));
         }
+        credentialConfigurationSupported.setCredentialMetadataDTO(credentialMetadataDTO);
 
         return credentialConfigurationSupported;
+    }
+
+    private List<CredentialMetadataDTO.Claims> mapStandardClaims(Map<String, Claims> claims) {
+        if (claims == null) return Collections.emptyList();
+        return claims.entrySet().stream()
+                .map(entry -> buildClaimObject(Collections.singletonList(entry.getKey()), entry.getValue()))
+                .collect(Collectors.toList());
+    }
+
+    private List<CredentialMetadataDTO.Claims> mapMDocClaims(Map<String, Map<String, Claims>> mDocClaims) {
+        if (mDocClaims == null) return Collections.emptyList();
+        return mDocClaims.entrySet().stream()
+                .filter(namespace -> namespace.getValue() != null)
+                .flatMap(namespace -> namespace.getValue().entrySet().stream()
+                        .map(entry -> buildClaimObject(Arrays.asList(namespace.getKey(), entry.getKey()), entry.getValue())))
+                .collect(Collectors.toList());
+    }
+
+    private CredentialMetadataDTO.Claims buildClaimObject(List<String> path, Claims value) {
+        CredentialMetadataDTO.Claims claim = new CredentialMetadataDTO.Claims();
+        claim.setPath(path);
+
+        if (value != null && value.getDisplay() != null) {
+            List<ClaimsDisplayFieldsConfigDTO.Display> displayList = value.getDisplay().stream()
+                    .map(d -> new ClaimsDisplayFieldsConfigDTO.Display(d.getName(), d.getLocale()))
+                    .collect(Collectors.toList());
+            claim.setDisplay(displayList);
+        }
+        return claim;
     }
 }
