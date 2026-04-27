@@ -95,8 +95,26 @@ public class PreAuthorizedCodeServiceTest {
         // Setup mock for credentialConfigurationService
         Map<String, CredentialConfigurationSupportedDTO> supportedDTOMap = new LinkedHashMap<>();
         CredentialConfigurationSupportedDTO configDTO = new CredentialConfigurationSupportedDTO();
-        configDTO.setClaims(requiredClaims);
+        CredentialMetadataDTO metadata = new CredentialMetadataDTO();
+        List<CredentialMetadataDTO.Claims> claimsList = new ArrayList<>();
+
+        CredentialMetadataDTO.Claims givenName = new CredentialMetadataDTO.Claims();
+        givenName.setPath(List.of("credentialSubject", "name"));
+
+        ClaimsDisplayFieldsConfigDTO.Display givenNameDisplay =
+                new ClaimsDisplayFieldsConfigDTO.Display();
+        givenNameDisplay.setName("Given Name");
+        givenNameDisplay.setLocale("en-US");
+
+        givenName.setDisplay(List.of(givenNameDisplay));
+        givenName.setMandatory(true);
+
+        claimsList.add(givenName);
+        metadata.setClaims(claimsList);
+        configDTO.setCredentialMetadataDTO(metadata);
         supportedDTOMap.put(CONFIG_ID, configDTO);
+
+
 
         metadataDTO = mock(CredentialIssuerMetadataDTO.class);
         when(metadataDTO.getCredentialConfigurationSupportedDTO()).thenReturn(supportedDTOMap);

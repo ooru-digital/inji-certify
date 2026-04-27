@@ -368,6 +368,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         CredentialMetadataDTO credentialMetadataDTO = new CredentialMetadataDTO();
         credentialMetadataDTO.setDisplay(credentialConfigurationDTO.getMetaDataDisplay());
         if (VCFormats.LDP_VC.equals(credentialConfig.getCredentialFormat())) {
+            CredentialDefinition credentialDefinition = new CredentialDefinition();
+            credentialDefinition.setType(credentialConfigurationDTO.getCredentialTypes());
+            credentialDefinition.setContext(credentialConfigurationDTO.getContextURLs());
+            credentialConfigurationSupported.setCredentialDefinition(credentialDefinition);
             credentialMetadataDTO.setClaims(mapStandardClaims(credentialConfig.getClaims()));
         } else if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
             credentialConfigurationSupported.setDocType(credentialConfig.getDocType());
@@ -400,12 +404,14 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     private CredentialMetadataDTO.Claims buildClaimObject(List<String> path, Claims value) {
         CredentialMetadataDTO.Claims claim = new CredentialMetadataDTO.Claims();
         claim.setPath(path);
-
-        if (value != null && value.getDisplay() != null) {
-            List<ClaimsDisplayFieldsConfigDTO.Display> displayList = value.getDisplay().stream()
-                    .map(d -> new ClaimsDisplayFieldsConfigDTO.Display(d.getName(), d.getLocale()))
-                    .collect(Collectors.toList());
-            claim.setDisplay(displayList);
+        if (value != null) {
+            if (value.getDisplay() != null) {
+                List<ClaimsDisplayFieldsConfigDTO.Display> displayList = value.getDisplay().stream()
+                        .map(d -> new ClaimsDisplayFieldsConfigDTO.Display(d.getName(), d.getLocale()))
+                        .collect(Collectors.toList());
+                claim.setDisplay(displayList);
+            }
+            claim.setMandatory(value.isMandatory());
         }
         return claim;
     }
