@@ -4,7 +4,11 @@
 databases:
   inji_certify:
     enabled: true
-    host: "postgres-postgresql.postgres"
+    scriptsDir: inji_certify       # fixed - must match db_scripts/ folder in repo
+    dbName: inji_certify           # customize e.g. inji_certify02
+    dbUser: injicertifyuser        # customize e.g. injicertifyuser02
+    defaultDb: postgres
+    host: "postgres-postgresql"
     port: 5432
     su:
       user: postgres
