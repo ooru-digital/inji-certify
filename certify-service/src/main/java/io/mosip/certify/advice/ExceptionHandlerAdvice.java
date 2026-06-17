@@ -102,6 +102,10 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             return handleOAuthControllerExceptions(ex);
         }
 
+        if(pathInfo != null && pathInfo.startsWith("/vc-api/")) {
+            return handleVcApiControllerExceptions(ex);
+        }
+
         return handleInternalControllerException(ex);
     }
 
@@ -150,6 +154,30 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
                     HttpStatus.FORBIDDEN.getReasonPhrase()), HttpStatus.FORBIDDEN);
         }
         return new ResponseEntity<ResponseWrapper>(getResponseWrapper(UNKNOWN_ERROR, ex.getMessage()), HttpStatus.OK);
+    }
+
+    public ResponseEntity<VCError> handleVcApiControllerExceptions(Exception ex) {
+        if(ex instanceof MethodArgumentNotValidException) {
+            FieldError fieldError = ((MethodArgumentNotValidException) ex).getBindingResult().getFieldError();
+            String message = fieldError != null ? fieldError.getDefaultMessage() : ex.getMessage();
+            return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, message), HttpStatus.BAD_REQUEST);
+        }
+        if(ex instanceof InvalidRequestException) {
+            String errorCode = ((InvalidRequestException) ex).getErrorCode();
+            return new ResponseEntity<>(getVCErrorDto(errorCode, getMessage(errorCode, errorCode)), HttpStatus.BAD_REQUEST);
+        }
+        if(ex instanceof CredentialConfigException) {
+            return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, ex.getMessage()), HttpStatus.NOT_FOUND);
+        }
+        if(ex instanceof CertifyException) {
+            String errorCode = ((CertifyException) ex).getErrorCode();
+            String errorMessage = ex.getMessage();
+            HttpStatus status = CONFIG_NOT_FOUND_BY_ID.equals(errorCode)
+                    ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
+            return new ResponseEntity<>(getVCErrorDto(errorCode, errorMessage), status);
+        }
+        log.error("Unhandled exception in VC API handler", ex);
+        return new ResponseEntity<>(getVCErrorDto(UNKNOWN_ERROR, ex.getMessage()), HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
     public ResponseEntity<VCError> handleVCIControllerExceptions(Exception ex) {
