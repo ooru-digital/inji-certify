@@ -1,12 +1,13 @@
 package io.mosip.certify.services;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import foundation.identity.jsonld.JsonLDObject;
+import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
-import io.mosip.certify.core.dto.VcApiIssueOptions;
-import io.mosip.certify.core.dto.VcApiIssueRequest;
-import io.mosip.certify.core.dto.VcApiIssueResponse;
+import io.mosip.certify.core.dto.VCApiIssueOptions;
+import io.mosip.certify.core.dto.VCApiIssueRequest;
+import io.mosip.certify.core.dto.VCApiIssueResponse;
+import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -15,9 +16,6 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.Map;
-
-import io.mosip.certify.core.constants.ErrorConstants;
-import io.mosip.certify.core.exception.CertifyException;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -34,16 +32,16 @@ public class VCApiIssuanceServiceTest {
     private CredentialConfigurationService credentialConfigurationService;
 
     @Mock
-    private VcApiTemplateIssuanceSupport vcApiTemplateIssuanceSupport;
+    private VCApiTemplateIssuanceSupport vcApiTemplateIssuanceSupport;
 
     @InjectMocks
     private VCApiIssuanceService vcApiIssuanceService;
 
     @Test
-    public void issue_delegatesToTemplateSupport() throws JsonProcessingException {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+    public void issue_delegatesToTemplateSupport() {
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("farmer-credential");
         request.setOptions(options);
 
@@ -54,9 +52,9 @@ public class VCApiIssuanceServiceTest {
 
         JsonLDObject signedVc = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
         when(vcApiTemplateIssuanceSupport.issueFromTemplate(eq(request.getCredentialSubject()), eq(config)))
-                .thenReturn(new VcApiTemplateIssuanceSupport.VcApiIssueResult(signedVc));
+                .thenReturn(new VCApiTemplateIssuanceSupport.VCApiIssueResult(signedVc));
 
-        VcApiIssueResponse response = vcApiIssuanceService.issue(request);
+        VCApiIssueResponse response = vcApiIssuanceService.issue(request);
 
         assertNotNull(response.getVerifiableCredential());
         assertNotNull(response.getVerifiableCredential().get("type"));
@@ -65,10 +63,10 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_returnsCredentialMapFromSignedVc() throws JsonProcessingException {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+    public void issue_returnsCredentialMapFromSignedVc() {
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe", "idNumber", "12345"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("farmer-credential");
         request.setOptions(options);
 
@@ -80,18 +78,18 @@ public class VCApiIssuanceServiceTest {
         JsonLDObject signedVc = JsonLDObject.fromJson(
                 "{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"],\"credentialSubject\":{\"fullName\":\"Jane Doe\"}}");
         when(vcApiTemplateIssuanceSupport.issueFromTemplate(eq(request.getCredentialSubject()), eq(config)))
-                .thenReturn(new VcApiTemplateIssuanceSupport.VcApiIssueResult(signedVc));
+                .thenReturn(new VCApiTemplateIssuanceSupport.VCApiIssueResult(signedVc));
 
-        VcApiIssueResponse response = vcApiIssuanceService.issue(request);
+        VCApiIssueResponse response = vcApiIssuanceService.issue(request);
 
         assertEquals("Jane Doe", ((Map<?, ?>) response.getVerifiableCredential().get("credentialSubject")).get("fullName"));
     }
 
     @Test
-    public void issue_whenTemplateSupportThrows_propagatesCertifyException() throws JsonProcessingException {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+    public void issue_whenTemplateSupportThrows_propagatesCertifyException() {
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("unknown-config");
         request.setOptions(options);
 

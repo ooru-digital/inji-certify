@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCIErrorConstants;
 import io.mosip.certify.core.dto.ParsedAccessToken;
-import io.mosip.certify.core.dto.VcApiIssueOptions;
-import io.mosip.certify.core.dto.VcApiIssueRequest;
-import io.mosip.certify.core.dto.VcApiIssueResponse;
+import io.mosip.certify.core.dto.VCApiIssueOptions;
+import io.mosip.certify.core.dto.VCApiIssueRequest;
+import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.services.VCApiIssuanceService;
 import org.junit.Test;
@@ -49,13 +49,13 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_returnsVerifiableCredential() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("id", "did:example:holder", "fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("my-credential");
         request.setOptions(options);
 
-        VcApiIssueResponse response = new VcApiIssueResponse();
+        VCApiIssueResponse response = new VCApiIssueResponse();
         Map<String, Object> vc = new LinkedHashMap<>();
         vc.put("type", java.util.List.of("VerifiableCredential"));
         response.setVerifiableCredential(vc);
@@ -70,8 +70,8 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_withMissingCredentialSubject_thenFail() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueRequest request = new VCApiIssueRequest();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("my-credential");
         request.setOptions(options);
 
@@ -84,7 +84,7 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_withMissingOptions_thenFail() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
 
         mockMvc.perform(post("/vc-api/credentials/issue")
@@ -96,9 +96,9 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_withBlankCredentialConfigurationId_thenFail() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("  ");
         request.setOptions(options);
 
@@ -111,9 +111,9 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_whenServiceThrowsCertifyException_thenFail() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("unknown-config");
         request.setOptions(options);
 
@@ -129,9 +129,9 @@ public class VCApiControllerTest {
 
     @Test
     public void issueCredential_whenServiceThrowsUnsupportedFormat_thenFail() throws Exception {
-        VcApiIssueRequest request = new VcApiIssueRequest();
+        VCApiIssueRequest request = new VCApiIssueRequest();
         request.setCredentialSubject(Map.of("fullName", "Jane Doe"));
-        VcApiIssueOptions options = new VcApiIssueOptions();
+        VCApiIssueOptions options = new VCApiIssueOptions();
         options.setCredentialConfigurationId("sdjwt-config");
         request.setOptions(options);
 

@@ -102,8 +102,8 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             return handleOAuthControllerExceptions(ex);
         }
 
-        if(pathInfo != null && pathInfo.startsWith("/vc-api/")) {
-            return handleVcApiControllerExceptions(ex);
+        if (pathInfo != null && pathInfo.startsWith("/vc-api/")) {
+            return handleVCApiControllerExceptions(ex);
         }
 
         return handleInternalControllerException(ex);
@@ -156,13 +156,21 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
         return new ResponseEntity<ResponseWrapper>(getResponseWrapper(UNKNOWN_ERROR, ex.getMessage()), HttpStatus.OK);
     }
 
-    public ResponseEntity<VCError> handleVcApiControllerExceptions(Exception ex) {
-        if(ex instanceof MethodArgumentNotValidException) {
+    public ResponseEntity<VCError> handleVCApiControllerExceptions(Exception ex) {
+        if (ex instanceof MethodArgumentNotValidException) {
             FieldError fieldError = ((MethodArgumentNotValidException) ex).getBindingResult().getFieldError();
             String message = fieldError != null ? fieldError.getDefaultMessage() : ex.getMessage();
             return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, message), HttpStatus.BAD_REQUEST);
         }
-        if(ex instanceof InvalidRequestException) {
+        if (ex instanceof ConstraintViolationException) {
+            Set<ConstraintViolation<?>> violations = ((ConstraintViolationException) ex).getConstraintViolations();
+            String message = !violations.isEmpty() ? violations.stream().findFirst().get().getMessage() : ex.getMessage();
+            return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, message), HttpStatus.BAD_REQUEST);
+        }
+        if (ex instanceof HttpMessageNotReadableException) {
+            return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, "Malformed JSON request body"), HttpStatus.BAD_REQUEST);
+        }
+        if (ex instanceof InvalidRequestException) {
             String errorCode = ((InvalidRequestException) ex).getErrorCode();
             return new ResponseEntity<>(getVCErrorDto(errorCode, getMessage(errorCode, errorCode)), HttpStatus.BAD_REQUEST);
         }

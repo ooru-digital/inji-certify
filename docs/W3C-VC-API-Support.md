@@ -96,7 +96,7 @@ flowchart TB
     Client[Client]
     VCAPI["POST /vc-api/credentials/issue"]
     VAS[VCApiIssuanceService]
-    Support[VcApiTemplateIssuanceSupport]
+    Support[VCApiTemplateIssuanceSupport]
 
     subgraph engine [Reused Certify engine]
         VF[VCFormatter + vcTemplate Velocity]
@@ -141,7 +141,7 @@ sequenceDiagram
     Svc->>CF: addProof(unsignedJson, keys from config)
     CF-->>Svc: signed VC
     Svc->>LD: storeLedgerEntry metadata
-    Svc-->>Ctrl: VcApiIssueResponse
+    Svc-->>Ctrl: VCApiIssueResponse
     Ctrl-->>C: 200 verifiableCredential
 ```
 
@@ -165,9 +165,9 @@ sequenceDiagram
 ```
 certify-core/
   └── io/mosip/certify/core/dto/
-        ├── VcApiIssueRequest.java          NEW
-        ├── VcApiIssueOptions.java          NEW
-        └── VcApiIssueResponse.java         NEW
+        ├── VCApiIssueRequest.java          NEW
+        ├── VCApiIssueOptions.java          NEW
+        └── VCApiIssueResponse.java         NEW
 
 certify-service/
   └── io/mosip/certify/
@@ -175,7 +175,7 @@ certify-service/
         │     └── VCApiController.java      NEW  @RequestMapping("/vc-api")
         ├── services/
         │     ├── VCApiIssuanceService.java NEW
-        │     └── VcApiTemplateIssuanceSupport.java  NEW (template + sign reuse, see §6)
+        │     └── VCApiTemplateIssuanceSupport.java  NEW (template + sign reuse, see §6)
         ├── filter/
         │     └── VCApiKeyAuthFilter.java   NEW
         └── config/
@@ -196,8 +196,8 @@ certify-service/
 | `VCApiController` | REST: `POST /credentials/issue` |
 | `VCApiIssuanceService` | Orchestration: validate → status → sign → ledger |
 | `VCApiKeyAuthFilter` | Validate `X-API-Key` on `/vc-api/**` only |
-| `VcApiIssueRequest/Response/Options` | DTOs |
-| `VcApiTemplateIssuanceSupport` | Build VC from `vcTemplate` + sign (reuses Velocity/Factory) |
+| `VCApiIssueRequest/Response/Options` | DTOs |
+| `VCApiTemplateIssuanceSupport` | Build VC from `vcTemplate` + sign (reuses Velocity/Factory) |
 | `CredentialCacheKeyGenerator` | **Existing** — `generateKeyFromCredentialConfigKeyId` → template cache key |
 | `VCApiControllerTest`, `VCApiIssuanceServiceTest` | Tests |
 
@@ -242,11 +242,11 @@ certify-service/
 | Sign | `cred.addProof(..., vcFormatter.get*(templateName))` |
 | Ledger | `storeLedgerEntry(...)` |
 
-New class **`VcApiTemplateIssuanceSupport`** (~80–100 lines) centralizes this for the VC API only.
+New class **`VCApiTemplateIssuanceSupport`** (~80–100 lines) centralizes this for the VC API only.
 
 ```text
 VCApiIssuanceService
-    └── VcApiTemplateIssuanceSupport
+    └── VCApiTemplateIssuanceSupport
             ├── resolveTemplateName(credentialConfigurationId)
             ├── buildTemplateParams(credentialSubject)  // replaces plugin fetchData
             ├── credentialFactory → createCredential()   // Velocity + vcTemplate

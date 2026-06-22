@@ -2,13 +2,12 @@ package io.mosip.certify.filter;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -16,10 +15,15 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
-class VCApiKeyAuthFilterTest {
+@RunWith(MockitoJUnitRunner.class)
+public class VCApiKeyAuthFilterTest {
 
     @InjectMocks
     private VCApiKeyAuthFilter filter;
@@ -33,9 +37,8 @@ class VCApiKeyAuthFilterTest {
     private static final String SERVLET_PATH = "/v1/certify";
     private static final String VALID_API_KEY = "test-api-key";
 
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this);
+    @Before
+    public void setUp() {
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         ReflectionTestUtils.setField(filter, "servletPath", SERVLET_PATH);
@@ -43,22 +46,38 @@ class VCApiKeyAuthFilterTest {
         SecurityContextHolder.clearContext();
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/v1/certify/vc-api/credentials/issue", "/v1/certify/vc-api/status"})
-    void shouldFilterForVcApiUrls(String url) {
-        request.setRequestURI(url);
+    @Test
+    public void shouldFilterForVCApiCredentialsIssueUrl() {
+        request.setRequestURI("/v1/certify/vc-api/credentials/issue");
         assertFalse(filter.shouldNotFilter(request));
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"/v1/certify/issuance/credential", "/v1/certify/oauth/token", "/health"})
-    void shouldNotFilterForNonVcApiUrls(String url) {
-        request.setRequestURI(url);
+    @Test
+    public void shouldFilterForVCApiStatusUrl() {
+        request.setRequestURI("/v1/certify/vc-api/status");
+        assertFalse(filter.shouldNotFilter(request));
+    }
+
+    @Test
+    public void shouldNotFilterForIssuanceCredentialUrl() {
+        request.setRequestURI("/v1/certify/issuance/credential");
         assertTrue(filter.shouldNotFilter(request));
     }
 
     @Test
-    void whenValidApiKey_shouldAuthenticateAndContinueChain() throws ServletException, IOException {
+    public void shouldNotFilterForOAuthTokenUrl() {
+        request.setRequestURI("/v1/certify/oauth/token");
+        assertTrue(filter.shouldNotFilter(request));
+    }
+
+    @Test
+    public void shouldNotFilterForHealthUrl() {
+        request.setRequestURI("/health");
+        assertTrue(filter.shouldNotFilter(request));
+    }
+
+    @Test
+    public void whenValidApiKey_shouldAuthenticateAndContinueChain() throws ServletException, IOException {
         request.setRequestURI(SERVLET_PATH + "/vc-api/credentials/issue");
         request.addHeader(VCApiKeyAuthFilter.API_KEY_HEADER, VALID_API_KEY);
 
@@ -70,7 +89,7 @@ class VCApiKeyAuthFilterTest {
     }
 
     @Test
-    void whenMissingApiKey_shouldReturnUnauthorized() throws ServletException, IOException {
+    public void whenMissingApiKey_shouldReturnUnauthorized() throws ServletException, IOException {
         request.setRequestURI(SERVLET_PATH + "/vc-api/credentials/issue");
 
         filter.doFilterInternal(request, response, filterChain);
@@ -81,7 +100,7 @@ class VCApiKeyAuthFilterTest {
     }
 
     @Test
-    void whenInvalidApiKey_shouldReturnUnauthorized() throws ServletException, IOException {
+    public void whenInvalidApiKey_shouldReturnUnauthorized() throws ServletException, IOException {
         request.setRequestURI(SERVLET_PATH + "/vc-api/credentials/issue");
         request.addHeader(VCApiKeyAuthFilter.API_KEY_HEADER, "wrong-key");
 
@@ -92,7 +111,7 @@ class VCApiKeyAuthFilterTest {
     }
 
     @Test
-    void whenApiKeyHasSurroundingWhitespace_shouldAcceptTrimmedKey() throws ServletException, IOException {
+    public void whenApiKeyHasSurroundingWhitespace_shouldAcceptTrimmedKey() throws ServletException, IOException {
         ReflectionTestUtils.setField(filter, "apiKeysConfig", " " + VALID_API_KEY + " ");
         request.setRequestURI(SERVLET_PATH + "/vc-api/credentials/issue");
         request.addHeader(VCApiKeyAuthFilter.API_KEY_HEADER, VALID_API_KEY);

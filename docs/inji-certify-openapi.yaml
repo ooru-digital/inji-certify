@@ -1477,14 +1477,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/VcApiIssueRequest'
+              $ref: '#/components/schemas/VCApiIssueRequest'
       responses:
         '200':
           description: Signed verifiable credential
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VcApiIssueResponse'
+                $ref: '#/components/schemas/VCApiIssueResponse'
         '400':
           description: Invalid request
         '401':
@@ -3147,7 +3147,7 @@ components:
           type: string
         issuer_state:
           type: string
-    VcApiIssueOptions:
+    VCApiIssueOptions:
       type: object
       required:
         - credentialConfigurationId
@@ -3155,7 +3155,7 @@ components:
         credentialConfigurationId:
           type: string
           description: Active credential configuration key id (credentialConfigKeyId)
-    VcApiIssueRequest:
+    VCApiIssueRequest:
       type: object
       required:
         - credentialSubject
@@ -3166,8 +3166,8 @@ components:
           additionalProperties: true
           description: Claim values matching vcTemplate Velocity placeholders
         options:
-          $ref: '#/components/schemas/VcApiIssueOptions'
-    VcApiIssueResponse:
+          $ref: '#/components/schemas/VCApiIssueOptions'
+    VCApiIssueResponse:
       type: object
       properties:
         verifiableCredential:

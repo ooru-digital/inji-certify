@@ -7,9 +7,11 @@ package io.mosip.certify.services;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import foundation.identity.jsonld.JsonLDObject;
+import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
-import io.mosip.certify.core.dto.VcApiIssueRequest;
-import io.mosip.certify.core.dto.VcApiIssueResponse;
+import io.mosip.certify.core.dto.VCApiIssueRequest;
+import io.mosip.certify.core.dto.VCApiIssueResponse;
+import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,29 +30,36 @@ public class VCApiIssuanceService {
     private CredentialConfigurationService credentialConfigurationService;
 
     @Autowired
-    private VcApiTemplateIssuanceSupport vcApiTemplateIssuanceSupport;
+    private VCApiTemplateIssuanceSupport vcApiTemplateIssuanceSupport;
 
-    public VcApiIssueResponse issue(VcApiIssueRequest request) throws JsonProcessingException {
+    public VCApiIssueResponse issue(VCApiIssueRequest request) {
         String credentialConfigurationId = request.getOptions().getCredentialConfigurationId();
         log.info("VC API issue request for configuration: {}", credentialConfigurationId);
 
-        CredentialConfigurationDTO config = credentialConfigurationService
-                .getCredentialConfigurationById(credentialConfigurationId);
+        try {
+            CredentialConfigurationDTO config = credentialConfigurationService
+                    .getCredentialConfigurationById(credentialConfigurationId);
 
-        VcApiTemplateIssuanceSupport.VcApiIssueResult result = vcApiTemplateIssuanceSupport
-                .issueFromTemplate(request.getCredentialSubject(), config);
+            VCApiTemplateIssuanceSupport.VCApiIssueResult result = vcApiTemplateIssuanceSupport
+                    .issueFromTemplate(request.getCredentialSubject(), config);
 
-        VcApiIssueResponse response = new VcApiIssueResponse();
-        response.setVerifiableCredential(toCredentialMap(result.verifiableCredential()));
-        return response;
+            VCApiIssueResponse response = new VCApiIssueResponse();
+            response.setVerifiableCredential(toCredentialMap(result.verifiableCredential()));
+            return response;
+        } catch (JsonProcessingException e) {
+            log.error("VC API issue request failed during configuration lookup: {}", e.getMessage(), e);
+            throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
+                    "Invalid JSON data encountered during credential issuance");
+        }
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> toCredentialMap(JsonLDObject jsonLDObject) {
         Object json = jsonLDObject.getJsonObject();
-        if (json instanceof Map) {
-            return new LinkedHashMap<>((Map<String, Object>) json);
+        if (json instanceof Map<?, ?> map) {
+            return new LinkedHashMap<>((Map<String, Object>) map);
         }
-        return new LinkedHashMap<>(jsonLDObject.getJsonObject());
+        throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
+                "Unable to convert verifiable credential to response format");
     }
 }

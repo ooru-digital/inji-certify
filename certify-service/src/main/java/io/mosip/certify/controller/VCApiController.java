@@ -5,10 +5,10 @@
  */
 package io.mosip.certify.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import io.mosip.certify.core.dto.VcApiIssueRequest;
-import io.mosip.certify.core.dto.VcApiIssueResponse;
+import io.mosip.certify.core.dto.VCApiIssueRequest;
+import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.services.VCApiIssuanceService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 @RestController
 @RequestMapping("/vc-api")
+@Tag(name = "W3C VC API", description = "Endpoints for W3C Verifiable Credentials API issuance")
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
 public class VCApiController {
 
@@ -30,8 +31,7 @@ public class VCApiController {
     private VCApiIssuanceService vcApiIssuanceService;
 
     @PostMapping(value = "/credentials/issue", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<VcApiIssueResponse> issueCredential(@Valid @RequestBody VcApiIssueRequest request)
-            throws JsonProcessingException {
+    public ResponseEntity<VCApiIssueResponse> issueCredential(@Valid @RequestBody VCApiIssueRequest request) {
         log.info("VC API credentials/issue for configuration: {}",
                 request.getOptions().getCredentialConfigurationId());
         return ResponseEntity.ok(vcApiIssuanceService.issue(request));
