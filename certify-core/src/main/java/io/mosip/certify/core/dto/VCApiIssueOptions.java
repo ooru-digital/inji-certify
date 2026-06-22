@@ -6,8 +6,7 @@
 package io.mosip.certify.core.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-
-import io.mosip.certify.api.util.ErrorConstants;
+import io.mosip.certify.core.constants.ErrorConstants;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
