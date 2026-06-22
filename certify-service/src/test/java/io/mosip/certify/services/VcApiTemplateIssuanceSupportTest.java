@@ -23,20 +23,33 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @RunWith(MockitoJUnitRunner.class)
-public class VcApiTemplateIssuanceSupportTest {
+public class VCApiTemplateIssuanceSupportTest {
 
     private static final String TEMPLATE_NAME = "FarmerCredential|https://www.w3.org/2018/credentials/v1";
     private static final String DID_URL = "did:web:test.issuer";
 
     @InjectMocks
-    private VcApiTemplateIssuanceSupport support;
+    private VCApiTemplateIssuanceSupport support;
 
     @Mock
     private CredentialCacheKeyGenerator credentialCacheKeyGenerator;
@@ -97,7 +110,7 @@ public class VcApiTemplateIssuanceSupportTest {
         Map<String, Object> credentialSubject = Map.of("fullName", "Jane Doe", "id", "did:example:holder");
         stubSuccessfulIssuance(config, "{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
 
-        VcApiTemplateIssuanceSupport.VcApiIssueResult result =
+        VCApiTemplateIssuanceSupport.VCApiIssueResult result =
                 support.issueFromTemplate(credentialSubject, config);
 
         assertNotNull(result.verifiableCredential());

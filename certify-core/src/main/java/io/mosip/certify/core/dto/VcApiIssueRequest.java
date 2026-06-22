@@ -14,13 +14,19 @@ import lombok.Data;
 import java.util.Map;
 
 @Data
-public class VcApiIssueRequest {
+public class VCApiIssueRequest {
 
+    /**
+     * REQUIRED. Claim values matching vcTemplate Velocity placeholders.
+     */
     @NotNull(message = ErrorConstants.INVALID_REQUEST)
     @NotEmpty(message = ErrorConstants.INVALID_REQUEST)
     private Map<String, Object> credentialSubject;
 
+    /**
+     * REQUIRED. Issuance options including credential configuration id.
+     */
     @Valid
     @NotNull(message = ErrorConstants.INVALID_REQUEST)
-    private VcApiIssueOptions options;
+    private VCApiIssueOptions options;
 }

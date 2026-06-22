@@ -32,17 +32,23 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.*;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static io.mosip.certify.utils.CredentialUtils.toJsonMap;
 
 @Slf4j
 @Component
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
-public class VcApiTemplateIssuanceSupport {
+public class VCApiTemplateIssuanceSupport {
 
     @Autowired
     private CredentialCacheKeyGenerator credentialCacheKeyGenerator;
@@ -89,7 +95,7 @@ public class VcApiTemplateIssuanceSupport {
         return templateName;
     }
 
-    public VcApiIssueResult issueFromTemplate(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
+    public VCApiIssueResult issueFromTemplate(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
         if (!VCFormats.LDP_VC.equals(config.getCredentialFormat())) {
             throw new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
                     "VC API v1 supports only ldp_vc credential format");
@@ -136,7 +142,7 @@ public class VcApiTemplateIssuanceSupport {
                     vcFormatter.getDidUrl(templateName),
                     vcFormatter.getSignatureCryptoSuite(templateName));
 
-            return new VcApiIssueResult((JsonLDObject) result.getCredential());
+            return new VCApiIssueResult((JsonLDObject) result.getCredential());
         } catch (JSONException e) {
             log.error("VC API credential generation failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
@@ -149,13 +155,13 @@ public class VcApiTemplateIssuanceSupport {
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put(Constants.TEMPLATE_NAME, templateName);
         templateParams.put(Constants.DID_URL, didUrl);
-        if (!StringUtils.isEmpty(renderTemplateId)) {
+        if (StringUtils.isNotBlank(renderTemplateId)) {
             templateParams.put(Constants.RENDERING_TEMPLATE_ID, renderTemplateId);
         }
         Object holderId = credentialSubject.get("id");
         templateParams.put("_holderId", holderId != null ? holderId.toString() : "");
         templateParams.putAll(jsonObject.toMap());
-        if (!StringUtils.isEmpty(idPrefix)) {
+        if (StringUtils.isNotBlank(idPrefix)) {
             templateParams.put(VCDMConstants.CREDENTIAL_ID, idPrefix + UUID.randomUUID());
         }
         ZonedDateTime zonedDateTime = ZonedDateTime.now(ZoneOffset.UTC);
@@ -197,6 +203,6 @@ public class VcApiTemplateIssuanceSupport {
         log.info("VC API ledger entry stored for credentialType: {}", credentialType);
     }
 
-    public record VcApiIssueResult(JsonLDObject verifiableCredential) {
+    public record VCApiIssueResult(JsonLDObject verifiableCredential) {
     }
 }

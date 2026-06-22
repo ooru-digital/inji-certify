@@ -12,7 +12,10 @@ import java.util.Map;
 
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class VcApiIssueResponse {
+public class VCApiIssueResponse {
 
+    /**
+     * Signed LDP verifiable credential including proof.
+     */
     private Map<String, Object> verifiableCredential;
 }

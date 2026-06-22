@@ -6,13 +6,17 @@
 package io.mosip.certify.core.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.mosip.certify.core.constants.ErrorConstants;
+
+import io.mosip.certify.api.util.ErrorConstants;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 @Data
-public class VcApiIssueOptions {
+public class VCApiIssueOptions {
 
+    /**
+     * REQUIRED. Active credential configuration key id (credentialConfigKeyId).
+     */
     @NotBlank(message = ErrorConstants.INVALID_REQUEST)
     @JsonProperty("credentialConfigurationId")
     private String credentialConfigurationId;
