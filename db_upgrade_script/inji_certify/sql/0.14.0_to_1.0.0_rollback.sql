@@ -27,3 +27,32 @@ COMMENT ON COLUMN certify.credential_config.credential_subject IS 'Credential Su
 UPDATE certify.credential_config
 SET credential_format = 'vc+sd-jwt'
 WHERE credential_format = 'dc+sd-jwt';
+
+-- Revert default proof_types_supported from EdDSA back to Ed25519
+UPDATE certify.credential_config
+SET proof_types_supported = '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "ES256", "PS256", "Ed25519"]}}'::jsonb
+WHERE proof_types_supported = '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "ES256", "PS256", "EdDSA"]}}'::jsonb;
+
+-- Replace EdDSA back to Ed25519 in existing JWT proof algorithm lists
+UPDATE certify.credential_config
+SET proof_types_supported = jsonb_set(
+    proof_types_supported,
+    '{jwt,proof_signing_alg_values_supported}',
+    (
+      SELECT COALESCE(jsonb_agg(DISTINCT val), '[]'::jsonb)
+      FROM (
+        SELECT
+          CASE
+            WHEN alg = '"EdDSA"'::jsonb THEN '"Ed25519"'::jsonb
+            ELSE alg
+          END AS val
+        FROM jsonb_array_elements(proof_types_supported #> '{jwt,proof_signing_alg_values_supported}') AS alg
+      ) sub
+    )
+)
+WHERE proof_types_supported #> '{jwt,proof_signing_alg_values_supported}' IS NOT NULL
+  AND EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(proof_types_supported #> '{jwt,proof_signing_alg_values_supported}') AS alg
+      WHERE alg = '"EdDSA"'::jsonb
+  );
