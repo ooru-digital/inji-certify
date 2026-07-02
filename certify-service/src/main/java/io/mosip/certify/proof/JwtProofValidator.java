@@ -25,13 +25,23 @@ import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import io.mosip.certify.config.IssuerContext;
+import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.VCIErrorConstants;
+import io.mosip.certify.core.dto.CredentialProof;
+import io.mosip.certify.core.dto.CredentialRequest;
+import io.mosip.certify.core.dto.ParsedAccessToken;
+import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.exception.InvalidRequestException;
+import io.mosip.certify.exception.InvalidNonceException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.*;
 
@@ -48,6 +58,16 @@ public class JwtProofValidator implements ProofValidator {
     @Value("${mosip.certify.identifier}")
     private String credentialIdentifier;
 
+    @Autowired
+    private IssuerContext issuerContext;
+
+    private String resolveCredentialIdentifier() {
+        if (issuerContext.getCurrent() != null && issuerContext.getCurrent().getIdentifier() != null) {
+            return issuerContext.getCurrent().getIdentifier();
+        }
+        return credentialIdentifier;
+    }
+
     @Override
     public String getProofType() {
         return "jwt";
@@ -63,17 +83,42 @@ public class JwtProofValidator implements ProofValidator {
     }
 
     @Override
-    public boolean validate(String clientId, String cNonce, String proofJwt, Map<String, Object> proofConfiguration) {
-        if(proofJwt == null || proofJwt.isBlank()) {
+    public void validateCNonce(String cNonce, int cNonceExpireSeconds, ParsedAccessToken parsedAccessToken, CredentialRequest credentialRequest) {
+        // No specific validation for CNonce in JWT proof, as it is not part of the JWT structure.
+        // CNonce validation is typically handled at the request level before the proof validation.
+        if (parsedAccessToken.getClaims().containsKey(Constants.C_NONCE)
+                && credentialRequest.getProof().getJwt() != null) {
+            // issue a c_nonce and return the error
+            try {
+                SignedJWT proofJwt = SignedJWT.parse(credentialRequest.getProof().getJwt());
+                String proofJwtNonce = Optional.ofNullable(proofJwt.getJWTClaimsSet().getStringClaim("nonce")).orElse("");
+                String authZServerNonce = Optional.ofNullable(parsedAccessToken.getClaims().get(Constants.C_NONCE)).map(Object::toString).orElse("");
+                if (authZServerNonce.equals(StringUtils.EMPTY) || !cNonce.equals(proofJwtNonce)) {
+                    // AuthZ server didn't give in a protected c_nonce
+                    //  and c_nonce given in proofJwt doesn't match Certify generated c_nonce
+                    throw new InvalidNonceException(cNonce, cNonceExpireSeconds);
+                }
+            } catch (ParseException e) {
+                // check iff specific error exists for invalid holderKey
+                throw new CertifyException(VCIErrorConstants.INVALID_PROOF, "Error encountered during proof jwt parsing.");
+            }
+        } else {
+            throw new InvalidNonceException(cNonce, cNonceExpireSeconds);
+        }
+    }
+
+    @Override
+    public boolean validate(String clientId, String cNonce, CredentialProof credentialProof, Map<String, Object> proofConfiguration) {
+        if(credentialProof.getJwt() == null || credentialProof.getJwt().isBlank()) {
             log.error("Found invalid jwt in the credential proof");
             return false;
         }
 
         try {
-            SignedJWT jwt = (SignedJWT) JWTParser.parse(proofJwt);
+            SignedJWT jwt = (SignedJWT) JWTParser.parse(credentialProof.getJwt());
             Map<String, Object> jwtConfiguration;
             if(proofConfiguration.get("jwt") != null) {
-                jwtConfiguration =(Map<String, Object>) proofConfiguration.get("jwt");
+             jwtConfiguration =(Map<String, Object>) proofConfiguration.get("jwt");
             } else {
                 throw new InvalidRequestException(UNSUPPORTED_ALGORITHM);
             }
@@ -87,16 +132,10 @@ public class JwtProofValidator implements ProofValidator {
                 throw new InvalidRequestException(ErrorConstants.PROOF_HEADER_INVALID_KEY);
             }
 
-            if (StringUtils.isEmpty(cNonce) && jwt.getJWTClaimsSet().getClaim("nonce") != null) {
-                log.error("Nonce claim is present in proof JWT but no c_nonce is expected");
-                return false;
-            }
-
             JWTClaimsSet.Builder proofJwtClaimsBuilder = new JWTClaimsSet.Builder()
-                    .audience(credentialIdentifier);
+                    .audience(resolveCredentialIdentifier());
             if (!StringUtils.isEmpty(cNonce)) {
-                proofJwtClaimsBuilder = proofJwtClaimsBuilder
-                        .claim("nonce", cNonce);
+                proofJwtClaimsBuilder = proofJwtClaimsBuilder.claim("nonce", cNonce);
             }
 
             // if the proof contains issuer claim, then it should match with the client id ref: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-ID1.html#section-7.2.1.1-2.2.2.1
@@ -119,7 +158,8 @@ public class JwtProofValidator implements ProofValidator {
                 boolean verified = jwt.verify(verifier);
                 claimsSetVerifier.verify(jwt.getJWTClaimsSet(), null);
                 return verified;
-            } else if (JWSAlgorithm.EdDSA.equals(jwt.getHeader().getAlgorithm()))
+            } else if (JWSAlgorithm.Ed25519.equals(jwt.getHeader().getAlgorithm()) ||
+                    JWSAlgorithm.EdDSA.equals(jwt.getHeader().getAlgorithm()))
             {
                 Ed25519Verifier verifier = new Ed25519Verifier(jwk.toOctetKeyPair());
                 boolean verified = jwt.verify(verifier);
@@ -132,7 +172,7 @@ public class JwtProofValidator implements ProofValidator {
                 jwtProcessor.setJWSKeySelector(keySelector);
                 jwtProcessor.setJWSTypeVerifier(new DefaultJOSEObjectTypeVerifier(new JOSEObjectType(HEADER_TYP)));
                 jwtProcessor.setJWTClaimsSetVerifier(claimsSetVerifier);
-                jwtProcessor.process(proofJwt, null);
+                jwtProcessor.process(credentialProof.getJwt(), null);
                 return true;
             }
         } catch (InvalidRequestException e) {
@@ -147,13 +187,13 @@ public class JwtProofValidator implements ProofValidator {
 
 
     /**
-     * @param proofJwt from the credential request.
+     * @param credentialProof proof from the credential request.
      * @return the key material from the proof in a did:jwk or did:key format
      */
     @Override
-    public String getKeyMaterial(String proofJwt) {
+    public String getKeyMaterial(CredentialProof credentialProof) {
         try {
-            SignedJWT jwt = (SignedJWT) JWTParser.parse(proofJwt);
+            SignedJWT jwt = (SignedJWT) JWTParser.parse(credentialProof.getJwt());
             JwtProofKeyManager jpkm = getInstance(jwt.getHeader().getKeyID());
             return jpkm.getDID(jwt.getHeader()).get();
         } catch (ParseException e) {
@@ -172,9 +212,9 @@ public class JwtProofValidator implements ProofValidator {
             throw new InvalidRequestException(ErrorConstants.PROOF_HEADER_INVALID_ALG);
 
         if ((Objects.isNull(jwsHeader.getKeyID()) && Objects.isNull(jwsHeader.getJWK()))
-                ||
+        ||
                 (Objects.isNull(jwsHeader.getJWK()) && Objects.nonNull(jwsHeader.getKeyID()) &&
-                        !(jwsHeader.getKeyID().startsWith(DID_KEY_PREFIX) || jwsHeader.getKeyID().startsWith(DID_JWK_PREFIX))))
+                    !(jwsHeader.getKeyID().startsWith(DID_KEY_PREFIX) || jwsHeader.getKeyID().startsWith(DID_JWK_PREFIX))))
             throw new InvalidRequestException(ErrorConstants.PROOF_HEADER_INVALID_KEY);
 
         // both cannot be present, either one of them is only allowed

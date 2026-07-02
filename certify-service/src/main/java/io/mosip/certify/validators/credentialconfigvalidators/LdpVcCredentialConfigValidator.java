@@ -1,8 +1,10 @@
 package io.mosip.certify.validators.credentialconfigvalidators;
 
+import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
 import io.mosip.certify.entity.CredentialConfig;
 import io.mosip.certify.repository.CredentialConfigRepository;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,9 +20,11 @@ public class LdpVcCredentialConfigValidator {
     }
 
     public static boolean isConfigAlreadyPresent(CredentialConfigurationDTO credentialConfig,
-                                                 CredentialConfigRepository credentialConfigRepository) {
+                                        CredentialConfigRepository credentialConfigRepository) {
+        String issuerId = StringUtils.defaultIfBlank(credentialConfig.getIssuerId(), IssuerConstants.DEFAULT_ISSUER_ID);
         Optional<CredentialConfig> optional =
-                credentialConfigRepository.findByCredentialFormatAndCredentialTypeAndContext(
+                credentialConfigRepository.findByIssuerIdAndCredentialFormatAndCredentialTypeAndContext(
+                        issuerId,
                         credentialConfig.getCredentialFormat(),
                         listToCommaSeparatedString(credentialConfig.getCredentialTypes()),
                         listToCommaSeparatedString(credentialConfig.getContextURLs()));

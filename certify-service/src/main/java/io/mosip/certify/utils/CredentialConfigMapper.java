@@ -3,7 +3,7 @@ package io.mosip.certify.utils;
 import io.mosip.certify.core.dto.ClaimsDisplayFieldsConfigDTO;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
 import io.mosip.certify.entity.CredentialConfig;
-import io.mosip.certify.entity.attributes.Claims;
+import io.mosip.certify.entity.attributes.ClaimsDisplayFieldsConfigs;
 import org.mapstruct.*;
 
 import java.util.ArrayList;
@@ -26,7 +26,8 @@ public interface CredentialConfigMapper {
     @Mapping(target = "credentialSigningAlgValuesSupported", ignore = true)
     @Mapping(target = "proofTypesSupported", ignore = true)
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToEntity")
-    @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "credentialSubject", source = "credentialSubjectDefinition")
+    @Mapping(target = "issuerId", defaultExpression = "java(io.mosip.certify.core.constants.IssuerConstants.DEFAULT_ISSUER_ID)")
     CredentialConfig toEntity(CredentialConfigurationDTO dto);
 
     // Convert Entity to DTO
@@ -35,9 +36,11 @@ public interface CredentialConfigMapper {
     @Mapping(target = "metaDataDisplay", source = "display")
     @Mapping(target = "displayOrder", source = "order")
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToDto")
-    @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "credentialSubjectDefinition", source = "credentialSubject")
+    @Mapping(target = "issuerId", source = "issuerId")
     CredentialConfigurationDTO toDto(CredentialConfig entity);
 
+    // Update existing entity with DTO data
     @Mapping(target = "configId", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "createdTimes", ignore = true)
@@ -50,11 +53,12 @@ public interface CredentialConfigMapper {
     @Mapping(target = "credentialSigningAlgValuesSupported", ignore = true)
     @Mapping(target = "proofTypesSupported", ignore = true)
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToEntity")
-    @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "credentialSubject", source = "credentialSubjectDefinition")
+    @Mapping(target = "issuerId", ignore = true)
     void updateEntityFromDto(CredentialConfigurationDTO dto, @MappingTarget CredentialConfig entity);
 
-    Claims toEntity(ClaimsDisplayFieldsConfigDTO dto);
-    ClaimsDisplayFieldsConfigDTO toDto(Claims dto);
+    ClaimsDisplayFieldsConfigs toEntity(ClaimsDisplayFieldsConfigDTO dto);
+    ClaimsDisplayFieldsConfigDTO toDto(ClaimsDisplayFieldsConfigs dto);
 
     @Named("listToCommaSeparatedString")
     default String listToCommaSeparatedString(List<String> list) {
@@ -77,12 +81,12 @@ public interface CredentialConfigMapper {
     }
 
     @Named("mapClaimsToEntity")
-    default Map<String, Map<String, Claims>> mapClaims(
+    default Map<String, Map<String, ClaimsDisplayFieldsConfigs>> mapClaims(
             Map<String, Map<String, ClaimsDisplayFieldsConfigDTO>> source) {
         if (source == null) return null;
-        Map<String, Map<String, Claims>> result = new java.util.HashMap<>();
+        Map<String, Map<String, ClaimsDisplayFieldsConfigs>> result = new java.util.HashMap<>();
         for (Map.Entry<String, Map<String, ClaimsDisplayFieldsConfigDTO>> entry : source.entrySet()) {
-            Map<String, Claims> innerMap = new java.util.HashMap<>();
+            Map<String, ClaimsDisplayFieldsConfigs> innerMap = new java.util.HashMap<>();
             for (Map.Entry<String, ClaimsDisplayFieldsConfigDTO> innerEntry : entry.getValue().entrySet()) {
                 innerMap.put(innerEntry.getKey(), toEntity(innerEntry.getValue()));
             }
@@ -93,12 +97,12 @@ public interface CredentialConfigMapper {
 
     @Named("mapClaimsToDto")
     default Map<String, Map<String, ClaimsDisplayFieldsConfigDTO>> mapClaimsToDto(
-            Map<String, Map<String, Claims>> source) {
+            Map<String, Map<String, ClaimsDisplayFieldsConfigs>> source) {
         if (source == null) return null;
         Map<String, Map<String, ClaimsDisplayFieldsConfigDTO>> result = new java.util.HashMap<>();
-        for (Map.Entry<String, Map<String, Claims>> entry : source.entrySet()) {
+        for (Map.Entry<String, Map<String, ClaimsDisplayFieldsConfigs>> entry : source.entrySet()) {
             Map<String, ClaimsDisplayFieldsConfigDTO> innerMap = new java.util.HashMap<>();
-            for (Map.Entry<String, Claims> innerEntry : entry.getValue().entrySet()) {
+            for (Map.Entry<String, ClaimsDisplayFieldsConfigs> innerEntry : entry.getValue().entrySet()) {
                 innerMap.put(innerEntry.getKey(), toDto(innerEntry.getValue()));
             }
             result.put(entry.getKey(), innerMap);

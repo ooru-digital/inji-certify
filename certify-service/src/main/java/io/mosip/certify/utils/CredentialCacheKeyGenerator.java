@@ -5,9 +5,11 @@
  */
 package io.mosip.certify.utils;
 
+import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.entity.CredentialConfig;
 import io.mosip.certify.repository.CredentialConfigRepository;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,20 +39,24 @@ public class CredentialCacheKeyGenerator {
         Optional<CredentialConfig> configOpt = credentialConfigRepository.findByCredentialConfigKeyId(credentialConfigKeyId);
 
         if (configOpt.isPresent()) {
-           CredentialConfig config = configOpt.get();
-
-           if(config.getCredentialFormat().equals(VCFormats.DC_SD_JWT)){
-                return String.join(DELIMITER,
-                          config.getCredentialFormat(),
-                          config.getSdJwtVct());
-           }
-
-           return String.join(DELIMITER,
-                       config.getCredentialType(),
-                       config.getContext(),
-                       config.getCredentialFormat());
+            return buildTemplateKey(configOpt.get());
         }
 
         return  "default-key";
+    }
+
+    /**
+     * Cache / template key scoped by issuer so the same credential type can exist for multiple issuers.
+     */
+    public static String buildTemplateKey(CredentialConfig config) {
+        String issuerId = StringUtils.defaultIfBlank(config.getIssuerId(), IssuerConstants.DEFAULT_ISSUER_ID);
+        if (VCFormats.VC_SD_JWT.equals(config.getCredentialFormat())) {
+            return String.join(DELIMITER, issuerId, config.getCredentialFormat(), config.getSdJwtVct());
+        }
+        if (VCFormats.MSO_MDOC.equals(config.getCredentialFormat())) {
+            return String.join(DELIMITER, issuerId, config.getCredentialFormat(), config.getDocType());
+        }
+        return String.join(DELIMITER, issuerId, config.getCredentialType(), config.getContext(),
+                config.getCredentialFormat());
     }
 }

@@ -113,7 +113,8 @@ class MsoMdocCredentialConfigValidatorTest {
         CredentialConfigRepository repo = Mockito.mock(CredentialConfigRepository.class);
         Mockito.when(config.getCredentialFormat()).thenReturn("format");
         Mockito.when(config.getDocType()).thenReturn("docType");
-        Mockito.when(repo.findByCredentialFormatAndDocType("format", "docType"))
+        Mockito.when(config.getIssuerId()).thenReturn("mdl");
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndDocType("mdl", "format", "docType"))
                 .thenReturn(Optional.of(new io.mosip.certify.entity.CredentialConfig()));
         assertTrue(MsoMdocCredentialConfigValidator.isConfigAlreadyPresent(config, repo));
     }
@@ -124,7 +125,8 @@ class MsoMdocCredentialConfigValidatorTest {
         CredentialConfigRepository repo = Mockito.mock(CredentialConfigRepository.class);
         Mockito.when(config.getCredentialFormat()).thenReturn("format");
         Mockito.when(config.getDocType()).thenReturn("docType");
-        Mockito.when(repo.findByCredentialFormatAndDocType("format", "docType"))
+        Mockito.when(config.getIssuerId()).thenReturn(null);
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndDocType("default", "format", "docType"))
                 .thenReturn(Optional.empty());
         assertFalse(MsoMdocCredentialConfigValidator.isConfigAlreadyPresent(config, repo));
     }

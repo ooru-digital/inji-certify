@@ -11,4 +11,6 @@ public class CredentialConfigResponse {
 
     @NotEmpty
     private String status;
+
+    private String issuerId;
 }

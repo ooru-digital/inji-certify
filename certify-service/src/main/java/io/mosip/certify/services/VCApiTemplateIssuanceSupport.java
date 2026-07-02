@@ -20,6 +20,7 @@ import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.spi.CredentialLedgerService;
 import io.mosip.certify.credential.Credential;
 import io.mosip.certify.credential.CredentialFactory;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.vcformatters.VCFormatter;
@@ -71,6 +72,9 @@ public class VCApiTemplateIssuanceSupport {
     @Autowired
     private VelocityEnvConfig velocityEnvConfig;
 
+    @Autowired
+    private IssuerResolver issuerResolver;
+
     @Value("${mosip.certify.data-provider-plugin.did-url}")
     private String didUrl;
 
@@ -102,6 +106,7 @@ public class VCApiTemplateIssuanceSupport {
         }
 
         String templateName = resolveTemplateName(config.getCredentialConfigKeyId());
+        Issuer issuer = issuerResolver.resolve(config.getIssuerId());
         JSONObject jsonObject = new JSONObject(credentialSubject);
         if (config.getCredentialTypes() != null) {
             jsonObject.put(Constants.TYPE, config.getCredentialTypes());
@@ -113,10 +118,10 @@ public class VCApiTemplateIssuanceSupport {
             if (!isLedgerEnabled) {
                 log.warn("Ledger feature is disabled while revocation is enabled for template {}", templateName);
             }
-            statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst());
+            statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst(), issuer);
         }
 
-        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject);
+        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject, issuer);
         Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
                 .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
 
@@ -132,7 +137,7 @@ public class VCApiTemplateIssuanceSupport {
             ZonedDateTime issuanceTime = ZonedDateTime.now(ZoneOffset.UTC);
             String time = issuanceTime.format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
             if (isLedgerEnabled) {
-                storeLedger(jsonObject, templateParams, time);
+                storeLedger(jsonObject, templateParams, time, issuer);
             }
 
             VCResult<?> result = cred.addProof(unsignedCredential, "",
@@ -151,10 +156,10 @@ public class VCApiTemplateIssuanceSupport {
     }
 
     private Map<String, Object> buildTemplateParams(Map<String, Object> credentialSubject, String templateName,
-                                                    JSONObject jsonObject) {
+                                                    JSONObject jsonObject, Issuer issuer) {
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put(Constants.TEMPLATE_NAME, templateName);
-        templateParams.put(Constants.DID_URL, didUrl);
+        templateParams.put(Constants.DID_URL, issuer.getDidUrl());
         if (StringUtils.isNotBlank(renderTemplateId)) {
             templateParams.put(Constants.RENDERING_TEMPLATE_ID, renderTemplateId);
         }
@@ -189,7 +194,7 @@ public class VCApiTemplateIssuanceSupport {
         }
     }
 
-    private void storeLedger(JSONObject jsonObject, Map<String, Object> templateParams, String time) {
+    private void storeLedger(JSONObject jsonObject, Map<String, Object> templateParams, String time, Issuer issuer) {
         Map<String, Object> indexedAttributes = ledgerUtils.extractIndexedAttributes(jsonObject);
         String credentialType = LedgerUtils.extractCredentialType(jsonObject);
         String credentialId = null;
@@ -198,7 +203,7 @@ public class VCApiTemplateIssuanceSupport {
         }
         CredentialStatusDetail credentialStatusDetail = ledgerUtils.extractCredentialStatusDetails(jsonObject);
         LocalDateTime issuanceDate = LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        credentialLedgerService.storeLedgerEntry(credentialId, didUrl, credentialType, credentialStatusDetail,
+        credentialLedgerService.storeLedgerEntry(credentialId, issuer.getDidUrl(), credentialType, credentialStatusDetail,
                 indexedAttributes, issuanceDate);
         log.info("VC API ledger entry stored for credentialType: {}", credentialType);
     }

@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
@@ -28,23 +30,34 @@ public class WellKnownController {
     private JwksService jwksService;
 
     @GetMapping(value = "/.well-known/openid-credential-issuer", produces = "application/json")
-    public CredentialIssuerMetadataDTO getCredentialIssuerMetadata() {
-        return credentialConfigurationService.fetchCredentialIssuerMetadata();
+    public CredentialIssuerMetadataDTO getCredentialIssuerMetadata(
+            @RequestParam(value = "issuerId", required = false) String issuerId,
+            @RequestParam(name = "version", required = false, defaultValue = "latest") String version) {
+        return credentialConfigurationService.fetchCredentialIssuerMetadata(issuerId, version);
     }
 
     @GetMapping(value = "/.well-known/did.json", produces = "application/json")
-    public Map<String, Object> getDIDDocument() {
-        return vcIssuanceService.getDIDDocument();
+    public Map<String, Object> getDIDDocument(
+            @RequestParam(value = "issuerId", required = false) String issuerId) {
+        return vcIssuanceService.getDIDDocument(issuerId);
+    }
+
+    /**
+     * did:web resolution target for per-issuer DIDs
+     * (e.g. did:web:host:v1:certify:issuers:iiitb → /v1/certify/issuers/iiitb/did.json).
+     */
+    @GetMapping(value = "/issuers/{issuerId}/did.json", produces = "application/json")
+    public Map<String, Object> getIssuerDIDDocument(@PathVariable String issuerId) {
+        return vcIssuanceService.getDIDDocument(issuerId);
     }
 
     @GetMapping(value = "/.well-known/jwks.json", produces = "application/json")
-    public ResponseEntity<Map<String, Object>> getJwks() {
+    public ResponseEntity<Map<String, Object>> getJwks(
+            @RequestParam(value = "issuerId", required = false) String issuerId) {
         try {
             Map<String, Object> response = jwksService.getJwks();
 
             if (response != null && response.containsKey("keys")) {
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> jwkList = (List<Map<String, Object>>) response.get("keys");
                 return ResponseEntity.ok(response);
             } else {
                 Map<String, Object> errorResponse = new HashMap<>();
@@ -53,8 +66,6 @@ public class WellKnownController {
             }
 
         } catch (Exception e) {
-            // Return empty keys array per OAuth 2.0 spec - clients should handle this gracefully
-            // Do NOT cache error responses - allow retries
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("keys", Collections.emptyList());
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(errorResponse);
