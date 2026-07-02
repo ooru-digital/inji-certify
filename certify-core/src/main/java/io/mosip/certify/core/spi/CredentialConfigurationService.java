@@ -11,9 +11,11 @@ public interface CredentialConfigurationService {
 
     CredentialConfigurationDTO getCredentialConfigurationById(String id) throws JsonProcessingException;
 
+    java.util.List<CredentialConfigurationDTO> listCredentialConfigurations(String issuerId) throws JsonProcessingException;
+
     CredentialConfigResponse updateCredentialConfiguration(String id, CredentialConfigurationDTO credentialConfigurationDTO) throws JsonProcessingException;
 
     String deleteCredentialConfigurationById(String id);
 
-    CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String version);
+    CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String issuerId, String version);
 }

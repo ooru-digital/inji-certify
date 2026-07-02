@@ -25,6 +25,9 @@ public class CredentialRequest {
     @NotBlank(message = ErrorConstants.INVALID_VC_FORMAT)
     private String format;
 
+    @JsonProperty("issuerId")
+    private String issuerId;
+
     /**
      * OPTIONAL.
      * JSON object containing proof of possession of the key material the issued Credential shall be bound to.

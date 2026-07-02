@@ -12,6 +12,7 @@ import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.spi.CredentialLedgerService;
 import io.mosip.certify.credential.CredentialFactory;
 import io.mosip.certify.credential.W3CJsonLD;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.vcformatters.VCFormatter;
@@ -65,6 +66,8 @@ public class VCApiTemplateIssuanceSupportTest {
     private LedgerUtils ledgerUtils;
     @Mock
     private VelocityEnvConfig velocityEnvConfig;
+    @Mock
+    private IssuerResolver issuerResolver;
 
     @Before
     public void setUp() {
@@ -74,6 +77,11 @@ public class VCApiTemplateIssuanceSupportTest {
         ReflectionTestUtils.setField(support, "defaultExpiryDuration", "P730D");
         ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
         when(velocityEnvConfig.getEnvConfigs()).thenReturn(new HashMap<>());
+        Issuer issuer = new Issuer();
+        issuer.setIssuerId("farmer");
+        issuer.setDidUrl(DID_URL);
+        issuer.setIdentifier("https://test.issuer");
+        when(issuerResolver.resolve(any())).thenReturn(issuer);
     }
 
     @Test
@@ -116,7 +124,7 @@ public class VCApiTemplateIssuanceSupportTest {
         assertNotNull(result.verifiableCredential());
         assertNotNull(result.verifiableCredential().getJsonObject());
         verify(credentialFactory).getCredential(VCFormats.LDP_VC);
-        verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString());
+        verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString(), any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
     }
 
@@ -131,7 +139,7 @@ public class VCApiTemplateIssuanceSupportTest {
 
         support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config);
 
-        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"), eq(issuer));
     }
 
     @Test
@@ -172,6 +180,7 @@ public class VCApiTemplateIssuanceSupportTest {
         config.setCredentialFormat(VCFormats.LDP_VC);
         config.setCredentialTypes(List.of("VerifiableCredential", "FarmerCredential"));
         config.setContextURLs(List.of("https://www.w3.org/2018/credentials/v1"));
+        config.setIssuerId("farmer");
         return config;
     }
 

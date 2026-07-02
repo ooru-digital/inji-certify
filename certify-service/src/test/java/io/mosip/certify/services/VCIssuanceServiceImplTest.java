@@ -18,6 +18,7 @@ import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.util.SecurityHelperService;
 import io.mosip.certify.enums.CredentialFormat;
 import io.mosip.certify.exception.InvalidNonceException;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.utils.VCIssuanceUtil;
@@ -59,7 +60,10 @@ public class VCIssuanceServiceImplTest {
     @Mock
     private ProofValidator proofValidator;
     @Mock
-    private CredentialConfigurationService credentialConfigurationService; // Added mock
+    private CredentialConfigurationService credentialConfigurationService;
+
+    @Mock
+    private IssuerResolver issuerResolver;
 
     @InjectMocks
     private VCIssuanceServiceImpl issuanceService;
@@ -143,8 +147,16 @@ public class VCIssuanceServiceImplTest {
 
 
         mockGlobalCredentialIssuerMetadataDTO.setCredentialConfigurationSupportedDTO(supportedCredsMap);
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata("latest"))
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(eq("default"), eq("latest")))
                 .thenReturn(mockGlobalCredentialIssuerMetadataDTO);
+
+        Issuer defaultIssuer = new Issuer();
+        defaultIssuer.setIssuerId("default");
+        defaultIssuer.setIdentifier("https://test.issuer.com");
+        defaultIssuer.setDidUrl("https://test.issuer.com");
+        defaultIssuer.setCredentialIssuerUrl("https://test.issuer.com");
+        defaultIssuer.setStatus("active");
+        when(issuerResolver.resolve(any())).thenReturn(defaultIssuer);
     }
 
     private CredentialRequest createValidCredentialRequest(String format) {

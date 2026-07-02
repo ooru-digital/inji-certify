@@ -23,6 +23,17 @@ public interface StatusListCredentialRepository extends JpaRepository<StatusList
             StatusListCredential.CredentialStatus credentialStatus
     );
 
+    Optional<StatusListCredential> findFirstByStatusPurposeAndCredentialStatusAndIssuerIdOrderByCreatedDtimesDesc(
+            String statusPurpose,
+            StatusListCredential.CredentialStatus credentialStatus,
+            String issuerId
+    );
+
+    Optional<StatusListCredential> findFirstByStatusPurposeAndCredentialStatusAndIssuerIdIsNullOrderByCreatedDtimesDesc(
+            String statusPurpose,
+            StatusListCredential.CredentialStatus credentialStatus
+    );
+
     /**
      * Find capacity of status list by ID
      */

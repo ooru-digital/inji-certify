@@ -21,6 +21,9 @@ public class CredentialIssuerMetadataDTO {
     @JsonProperty("credential_endpoint")
     private String credentialEndpoint;
 
+    @JsonProperty("nonce_endpoint")
+    private String nonceEndpoint;
+
     private List<Map<String, String>> display;
 
     @JsonIgnore

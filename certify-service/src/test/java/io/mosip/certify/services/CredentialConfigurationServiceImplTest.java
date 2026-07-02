@@ -4,6 +4,7 @@ import io.mosip.certify.core.dto.*;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.exception.CredentialConfigException;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.entity.attributes.ClaimsDisplayFieldsConfigs;
 import io.mosip.certify.entity.attributes.CredentialSubjectParameters;
 import io.mosip.certify.repository.CredentialConfigRepository;
@@ -27,6 +28,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -37,6 +39,9 @@ public class CredentialConfigurationServiceImplTest {
 
     @Mock
     private CredentialConfigMapper credentialConfigMapper;
+
+    @Mock
+    private IssuerResolver issuerResolver;
 
     @InjectMocks
     private CredentialConfigurationServiceImpl credentialConfigurationService;
@@ -59,6 +64,7 @@ public class CredentialConfigurationServiceImplTest {
         String id = UUID.randomUUID().toString();
         credentialConfig.setConfigId(id);
         credentialConfig.setCredentialConfigKeyId("test-credential");
+        credentialConfig.setIssuerId("default");
         credentialConfig.setStatus("active");
         credentialConfig.setVcTemplate("test_template");
         credentialConfig.setContext("https://www.w3.org/2018/credentials/v1");
@@ -102,6 +108,15 @@ public class CredentialConfigurationServiceImplTest {
         authServerMapping.put("default", "http://auth.com");
         ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", authServerMapping);
 
+        Issuer defaultIssuer = new Issuer();
+        defaultIssuer.setIssuerId("default");
+        defaultIssuer.setCredentialIssuerUrl("http://localhost:8090/v1/certify");
+        defaultIssuer.setIdentifier("http://localhost:8090");
+        defaultIssuer.setDidUrl("did:web:localhost");
+        defaultIssuer.setStatus("active");
+        defaultIssuer.setDisplay(Collections.emptyList());
+        when(issuerResolver.resolve(any())).thenReturn(defaultIssuer);
+        when(issuerResolver.resolveIssuerId(any())).thenReturn("default");
     }
 
     @Test
@@ -264,17 +279,17 @@ public class CredentialConfigurationServiceImplTest {
     public void fetchCredentialIssuerMetadata_Success() {
         // Setup test data
         List<CredentialConfig> credentialConfigList = List.of(credentialConfig);
-        when(credentialConfigRepository.findAll()).thenReturn(credentialConfigList);
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(credentialConfigList);
         when(credentialConfigMapper.toDto(any(CredentialConfig.class))).thenReturn(credentialConfigurationDTO);
 
         // Call the method
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("latest");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
         // Verify results
         Assert.assertNotNull(result);
-        Assert.assertEquals("http://example.com/", result.getCredentialIssuer());
+        Assert.assertEquals("http://localhost:8090/v1/certify", result.getCredentialIssuer());
         Assert.assertEquals(List.of("http://auth.com"), result.getAuthorizationServers());
-        Assert.assertEquals("http://example.com/v1/test/issuance/credential", result.getCredentialEndpoint());
+        Assert.assertEquals("http://localhost:8090/v1/certify/issuance/credential", result.getCredentialEndpoint());
 
         // Verify credential configuration
         Assert.assertNotNull(result.getCredentialConfigurationSupportedDTO());
@@ -282,7 +297,7 @@ public class CredentialConfigurationServiceImplTest {
         Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("test-credential"));
 
         // Verify mapping was called
-        verify(credentialConfigRepository).findAll();
+        verify(credentialConfigRepository).findByIssuerIdAndStatus(eq("default"), eq("active"));
         verify(credentialConfigMapper).toDto(credentialConfig);
     }
 
@@ -297,13 +312,13 @@ public class CredentialConfigurationServiceImplTest {
         config.setSignatureAlgo("ES256");
         config.setCredentialSubject(null);
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(config));
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(List.of(config));
         CredentialConfigurationDTO dto = new CredentialConfigurationDTO();
         dto.setCredentialFormat("ldp_vc");
         when(credentialConfigMapper.toDto(config)).thenReturn(dto);
 
 
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("latest");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
         Assert.assertNotNull(result);
         Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("test-credential"));
@@ -322,12 +337,12 @@ public class CredentialConfigurationServiceImplTest {
         config.setSignatureAlgo("ES256");
         config.setSdJwtVct("test-vct");
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(config));
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(List.of(config));
         CredentialConfigurationDTO dto = new CredentialConfigurationDTO();
         dto.setCredentialFormat("vc+sd-jwt");
         when(credentialConfigMapper.toDto(config)).thenReturn(dto);
 
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("latest");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
         Assert.assertNotNull(result);
         Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("sdjwt-credential"));
@@ -339,40 +354,34 @@ public class CredentialConfigurationServiceImplTest {
     public void fetchCredentialIssuerMetadata_vd11Version() {
         // Setup minimal test data
         List<CredentialConfig> credentialConfigList = List.of(credentialConfig);
-        when(credentialConfigRepository.findAll()).thenReturn(credentialConfigList);
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(credentialConfigList);
         when(credentialConfigMapper.toDto(any(CredentialConfig.class))).thenReturn(credentialConfigurationDTO);
 
-        // Call with specific version
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("vd11");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "vd11");
 
-        // Verify version in endpoint
-        Assert.assertEquals("http://example.com/v1/test/issuance/vd11/credential", result.getCredentialEndpoint());
+        Assert.assertEquals("http://localhost:8090/v1/certify/issuance/vd11/credential", result.getCredentialEndpoint());
     }
 
     @Test
     public void fetchCredentialIssuerMetadata_vd12Version() {
         // Setup minimal test data
         List<CredentialConfig> credentialConfigList = List.of(credentialConfig);
-        when(credentialConfigRepository.findAll()).thenReturn(credentialConfigList);
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(credentialConfigList);
         when(credentialConfigMapper.toDto(any(CredentialConfig.class))).thenReturn(credentialConfigurationDTO);
 
-        // Call with specific version
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("vd12");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "vd12");
 
-        // Verify version in endpoint
-        Assert.assertEquals("http://example.com/v1/test/issuance/vd12/credential", result.getCredentialEndpoint());
+        Assert.assertEquals("http://localhost:8090/v1/certify/issuance/vd12/credential", result.getCredentialEndpoint());
     }
 
     @Test
     public void fetchCredentialIssuerMetadata_invalidVersion() {
         // Setup minimal test data
         List<CredentialConfig> credentialConfigList = List.of(credentialConfig);
-        when(credentialConfigRepository.findAll()).thenReturn(credentialConfigList);
-
-        // Call with specific version
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(credentialConfigList);
 
         CertifyException ex = assertThrows(CertifyException.class, () ->
-                credentialConfigurationService.fetchCredentialIssuerMetadata("unsupported_version")
+                credentialConfigurationService.fetchCredentialIssuerMetadata(null, "unsupported_version")
         );
         assertEquals("Unsupported version: unsupported_version", ex.getMessage());
     }
@@ -380,14 +389,14 @@ public class CredentialConfigurationServiceImplTest {
     @Test
     public void fetchCredentialIssuerMetadata_EmptyCredentialConfigs() {
         // Setup empty credential config list
-        when(credentialConfigRepository.findAll()).thenReturn(Collections.emptyList());
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
 
         // Call the method
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("latest");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
         // Verify core metadata still populated
         Assert.assertNotNull(result);
-        Assert.assertEquals("http://example.com/", result.getCredentialIssuer());
+        Assert.assertEquals("http://localhost:8090/v1/certify", result.getCredentialIssuer());
         Assert.assertEquals(List.of("http://auth.com"), result.getAuthorizationServers());
 
         // Verify empty configurations map
@@ -395,7 +404,7 @@ public class CredentialConfigurationServiceImplTest {
         Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().isEmpty());
 
         // Verify no mapping calls
-        verify(credentialConfigRepository).findAll();
+        verify(credentialConfigRepository).findByIssuerIdAndStatus(eq("default"), eq("active"));
         verify(credentialConfigMapper, never()).toDto((CredentialConfig) any());
     }
 
@@ -412,7 +421,7 @@ public class CredentialConfigurationServiceImplTest {
         mdocConfig.setDocType("docType1");
 
         List<CredentialConfig> credentialConfigList = List.of(mdocConfig);
-        when(credentialConfigRepository.findAll()).thenReturn(credentialConfigList);
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(credentialConfigList);
 
         // Setup DTO for MSO_MDOC
         CredentialConfigurationDTO mdocDTO = new CredentialConfigurationDTO();
@@ -425,7 +434,7 @@ public class CredentialConfigurationServiceImplTest {
         when(credentialConfigMapper.toDto(mdocConfig)).thenReturn(mdocDTO);
 
         // Call the method
-        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata("latest");
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
         // Verify MSO_MDOC configuration
         Assert.assertNotNull(result.getCredentialConfigurationSupportedDTO());
@@ -784,4 +793,98 @@ public class CredentialConfigurationServiceImplTest {
         }
     }
 
+    @Test
+    public void resolveAuthorizationServers_MultipleServers_Success() {
+        ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", "http://auth1.com, http://auth2.com ");
+
+        Map<String, String> authServerMapping = new HashMap<>();
+        authServerMapping.put("Farmer", "http://farmer-as.com");
+        authServerMapping.put("Default", "http://auth1.com");
+        ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", authServerMapping);
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        List<String> servers = result.getAuthorizationServers();
+        Assert.assertNotNull(servers);
+        Assert.assertEquals(3, servers.size());
+        Assert.assertTrue(servers.contains("http://auth1.com"));
+        Assert.assertTrue(servers.contains("http://auth2.com"));
+        Assert.assertTrue(servers.contains("http://farmer-as.com"));
+        Assert.assertEquals("http://auth1.com", servers.get(0));
+        Assert.assertEquals("http://auth2.com", servers.get(1));
+        Assert.assertEquals("http://farmer-as.com", servers.get(2));
+    }
+
+    @Test
+    public void resolveAuthorizationServers_AuthUrlIsNull_ReturnsOnlyMappingServers() {
+        ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", null);
+
+        Map<String, String> authServerMapping = new HashMap<>();
+        authServerMapping.put("default", "http://mapping-server.com");
+        ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", authServerMapping);
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        List<String> servers = result.getAuthorizationServers();
+        Assert.assertNotNull(servers);
+        Assert.assertEquals(1, servers.size());
+        Assert.assertTrue(servers.contains("http://mapping-server.com"));
+    }
+
+    @Test
+    public void resolveAuthorizationServers_SingleAuthUrl_NoSplitRequired_ReturnsAllServers() {
+        ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", "http://single-auth.com");
+
+        Map<String, String> authServerMapping = new HashMap<>();
+        authServerMapping.put("extra", "http://extra-server.com");
+        ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", authServerMapping);
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        List<String> servers = result.getAuthorizationServers();
+        Assert.assertNotNull(servers);
+        Assert.assertEquals(2, servers.size());
+        Assert.assertTrue(servers.contains("http://single-auth.com"));
+        Assert.assertTrue(servers.contains("http://extra-server.com"));
+        Assert.assertEquals("http://single-auth.com", servers.get(0));
+        Assert.assertEquals("http://extra-server.com", servers.get(1));
+    }
+
+    @Test
+    public void resolveAuthorizationServers_MappingIsNull_ReturnsOnlyAuthUrlServers() {
+        ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", "http://auth1.com, http://auth2.com");
+        ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", null);
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        List<String> servers = result.getAuthorizationServers();
+        Assert.assertNotNull(servers);
+        Assert.assertEquals(2, servers.size());
+        Assert.assertEquals("http://auth1.com", servers.get(0));
+        Assert.assertEquals("http://auth2.com", servers.get(1));
+    }
+
+    @Test
+    public void resolveAuthorizationServers_MappingIsEmpty_ReturnsOnlyAuthUrlServers() {
+        ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", "http://auth1.com, http://auth2.com");
+        ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", new HashMap<>());
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active"))).thenReturn(Collections.emptyList());
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        List<String> servers = result.getAuthorizationServers();
+        Assert.assertNotNull(servers);
+        Assert.assertEquals(2, servers.size());
+        Assert.assertEquals("http://auth1.com", servers.get(0));
+        Assert.assertEquals("http://auth2.com", servers.get(1));
+    }
 }

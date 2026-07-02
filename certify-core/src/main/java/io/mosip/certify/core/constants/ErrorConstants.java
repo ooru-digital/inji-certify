@@ -91,5 +91,11 @@ public class ErrorConstants {
     public static final String AUTHORIZATION_SERVER_DISCOVERY_FAILED = "authorization_server_discovery_failed";
     public static final String INVALID_AUTHORIZATION_SERVER = "invalid_authorization_server";
     public static final String AUTHORIZATION_SERVER_NOT_CONFIGURED = "authorization_server_not_configured";
-
+    public static final String INVALID_ISSUER_ID = "invalid_issuer_id";
+    public static final String ISSUER_NOT_FOUND = "issuer_not_found";
+    public static final String ISSUER_ALREADY_EXISTS = "issuer_already_exists";
+    public static final String ISSUER_INACTIVE = "issuer_inactive";
+    public static final String INVALID_ISSUER_SIGNING_CONFIG = "invalid_issuer_signing_config";
+    public static final String ISSUER_KEY_GENERATION_FAILED = "issuer_key_generation_failed";
+    public static final String CROSS_ISSUER_CONFIG_MISMATCH = "cross_issuer_config_mismatch";
 }

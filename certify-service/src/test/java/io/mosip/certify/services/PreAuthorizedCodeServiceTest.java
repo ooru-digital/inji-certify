@@ -106,7 +106,7 @@ public class PreAuthorizedCodeServiceTest {
         when(metadataDTO.getCredentialConfigurationSupportedDTO()).thenReturn(supportedDTOMap);
 
         // KEY FIX: Mock the credentialConfigurationService to return metadataDTO
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata(anyString())).thenReturn(metadataDTO);
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(anyString(), anyString())).thenReturn(metadataDTO);
 
         // Mock credentialConfigRepository
         CredentialConfig credentialConfig = new CredentialConfig();

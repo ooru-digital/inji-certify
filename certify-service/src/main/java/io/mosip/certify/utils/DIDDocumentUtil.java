@@ -54,16 +54,17 @@ public class DIDDocumentUtil {
     private static final String MULTICODEC_PREFIX = "ed01";
 
     public Map<String, Object> generateDIDDocument(String didUrl) {
+        return generateDIDDocument(didUrl, null);
+    }
+
+    public Map<String, Object> generateDIDDocument(String didUrl, String issuerId) {
         HashMap<String, Object> didDocument = new HashMap<>();
         didDocument.put("@context", Collections.singletonList("https://www.w3.org/ns/did/v1"));
         didDocument.put("alsoKnownAs", new ArrayList<>());
         didDocument.put("service", new ArrayList<>());
         didDocument.put("id", didUrl);
-        didDocument.put("authentication", Collections.singletonList(didUrl));
-        didDocument.put("assertionMethod", Collections.singletonList(didUrl));
 
-        // Fetch the credentialConfig map
-        Map<String, List<String>> credentialConfigMap = getSignatureCryptoSuiteMap();
+        Map<String, List<String>> credentialConfigMap = getSignatureCryptoSuiteMap(issuerId);
 
         // Use a Set to track unique verification methods by their "id"
         Set<String> uniqueIds = new HashSet<>();
@@ -97,6 +98,13 @@ public class DIDDocumentUtil {
                 .collect(Collectors.toList());
 
         didDocument.put("verificationMethod", verificationMethods);
+        List<String> verificationMethodIds = verificationMethods.stream()
+                .map(vm -> (String) vm.get("id"))
+                .collect(Collectors.toList());
+        didDocument.put("authentication", verificationMethodIds.isEmpty()
+                ? Collections.singletonList(didUrl) : verificationMethodIds);
+        didDocument.put("assertionMethod", verificationMethodIds.isEmpty()
+                ? Collections.singletonList(didUrl) : verificationMethodIds);
 
         return didDocument;
     }
@@ -252,9 +260,14 @@ public class DIDDocumentUtil {
         return certificateResponseDTO;
     }
 
-    private Map<String, List<String>> getSignatureCryptoSuiteMap() {
-        // Fetch all credential configurations
-        List<CredentialConfig> allConfigs = credentialConfigRepository.findAll();
+    private Map<String, List<String>> getSignatureCryptoSuiteMap(String issuerId) {
+        List<CredentialConfig> allConfigs;
+        if (issuerId != null && !issuerId.isBlank()) {
+            allConfigs = credentialConfigRepository.findByIssuerIdAndStatus(
+                    issuerId, io.mosip.certify.core.constants.Constants.ACTIVE);
+        } else {
+            allConfigs = credentialConfigRepository.findAll();
+        }
 
         // Create a map with signatureCryptoSuite as the key and appId, refId as values
         Map<String, List<String>> signatureCryptoSuiteMap = new HashMap<>();

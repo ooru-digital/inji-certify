@@ -32,6 +32,7 @@ import io.mosip.certify.credential.CredentialFactory;
 import io.mosip.certify.core.dto.CredentialStatusDetail;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.utils.CredentialUtils;
 import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.utils.LedgerUtils;
@@ -106,6 +107,9 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
 
+    @Autowired
+    private IssuerResolver issuerResolver;
+
     @Value("${mosip.certify.identifier}")
     private String certifyIssuer;
 
@@ -141,6 +145,8 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId());
+
         // 1. Credential Request validation
         boolean isValidCredentialRequest = CredentialRequestValidator.isValid(credentialRequest);
         if(!isValidCredentialRequest) {
@@ -153,7 +159,9 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
-            Optional<CredentialMetadata> result = getScopeCredentialMapping(scope, credentialRequest.getFormat(), credentialConfigurationService.fetchCredentialIssuerMetadata("latest"), credentialRequest);
+            Optional<CredentialMetadata> result = getScopeCredentialMapping(scope, credentialRequest.getFormat(),
+                    credentialConfigurationService.fetchCredentialIssuerMetadata(issuer.getIssuerId(), "latest"),
+                    credentialRequest);
             if(result.isPresent()) {
                 credentialMetadata = result.get(); //considering only first credential scope
                 break;
@@ -176,7 +184,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
         // 4. Get VC from configured plugin implementation
         VCResult<?> vcResult = getVerifiableCredential(credentialRequest, credentialMetadata,
-                proofValidator.getKeyMaterial(credentialRequest.getProof()));
+                proofValidator.getKeyMaterial(credentialRequest.getProof()), issuer);
 
         auditWrapper.logAudit(Action.VC_ISSUANCE, ActionStatus.SUCCESS,
                 AuditHelper.buildAuditDto(parsedAccessToken.getAccessTokenHash(), "accessTokenHash"), null);
@@ -185,11 +193,18 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument() {
-        didDocument = didDocumentUtil.generateDIDDocument(didUrl);
+        return getDIDDocument(null);
+    }
+
+    @Override
+    public Map<String, Object> getDIDDocument(String issuerId) {
+        Issuer issuer = issuerResolver.resolve(issuerId);
+        didDocument = didDocumentUtil.generateDIDDocument(issuer.getDidUrl(), issuer.getIssuerId());
         return didDocument;
     }
 
-    private VCResult<?> getVerifiableCredential(CredentialRequest credentialRequest, CredentialMetadata credentialMetadata, String holderId) {
+    private VCResult<?> getVerifiableCredential(CredentialRequest credentialRequest, CredentialMetadata credentialMetadata,
+                                                  String holderId, Issuer issuer) {
         parsedAccessToken.getClaims().put("accessTokenHash", parsedAccessToken.getAccessTokenHash());
         VCRequestDto vcRequestDto = new VCRequestDto();
         vcRequestDto.setFormat(credentialRequest.getFormat());
@@ -210,7 +225,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                     vcRequestDto.setType(credentialRequest.getCredential_definition().getType());
                     vcRequestDto.setCredentialSubject(credentialRequest.getCredential_definition().getCredentialSubject());
                     validateLdpVcFormatRequest(credentialRequest, credentialMetadata);
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     jsonObject.put(Constants.TYPE, credentialRequest.getCredential_definition().getType());
 
                     List<String> credentialStatusPurposeList = vcFormatter.getCredentialStatusPurpose(templateName);
@@ -218,22 +233,22 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                         if(!isLedgerEnabled) {
                             log.warn("Ledger feature is currently disabled. Since revocation is enabled, please note that searching for VCs to revoke within Certify is not available.");
                         }
-                        statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst());
+                        statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst(), issuer);
                     }
                     break;
 
                 case "vc+sd-jwt":
                     vcRequestDto.setVct(credentialRequest.getVct());
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     templateParams.put(Constants.VCTYPE, vcRequestDto.getVct());
                     templateParams.put(Constants.CONFIRMATION, Map.of("kid", holderId));
-                    templateParams.put(Constants.ISSUER, certifyIssuer);
+                    templateParams.put(Constants.ISSUER, issuer.getIdentifier());
                     jsonObject.put(Constants.TYPE, vcRequestDto.getVct());
                     break;
 
                 case "mso_mdoc":
                     vcRequestDto.setDoctype(credentialRequest.getDoctype());
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     templateParams.put("_doctype", vcRequestDto.getDoctype());
                     jsonObject.put(Constants.TYPE, vcRequestDto.getDoctype());
                     break;
@@ -244,7 +259,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             }
             // Common logic for all formats
             templateParams.put(Constants.TEMPLATE_NAME, templateName);
-            templateParams.put(Constants.DID_URL, didUrl);
+            templateParams.put(Constants.DID_URL, issuer.getDidUrl());
             if (!StringUtils.isEmpty(renderTemplateId)) {
                 templateParams.put(Constants.RENDERING_TEMPLATE_ID, renderTemplateId);
             }
@@ -296,7 +311,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 }
                 CredentialStatusDetail credentialStatusDetail = ledgerUtils.extractCredentialStatusDetails(jsonObject);
                 LocalDateTime issuanceDate = LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-                credentialLedgerService.storeLedgerEntry(credentialId, didUrl, credentialType, credentialStatusDetail, indexedAttributes, issuanceDate);
+                credentialLedgerService.storeLedgerEntry(credentialId, issuer.getDidUrl(), credentialType, credentialStatusDetail, indexedAttributes, issuanceDate);
                 log.info("Successfully stored the credential issuance data in ledger with credentialType: {}", credentialType);
             }
             VCResult<?> result = cred.addProof(unsignedCredential, "", vcFormatter.getProofAlgorithm(templateName), vcFormatter.getAppID(templateName), vcFormatter.getRefID(templateName), vcFormatter.getDidUrl(templateName), vcFormatter.getSignatureCryptoSuite(templateName));

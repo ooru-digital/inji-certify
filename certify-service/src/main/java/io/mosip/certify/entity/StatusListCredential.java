@@ -32,6 +32,9 @@ public class StatusListCredential {
     @Column(name = "status_purpose", length = 100)
     private String statusPurpose;
 
+    @Column(name = "issuer_id", length = 64)
+    private String issuerId;
+
     @Column(name = "capacity_in_kb")
     private Long capacityInKB;
 
