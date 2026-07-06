@@ -39,6 +39,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -88,6 +89,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     private AuditPlugin auditWrapper;
 
     @Autowired
+    @Qualifier("certifyPixelPass")
     private PixelPass pixelPass;
 
     private Map<String, Object> didDocument;

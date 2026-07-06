@@ -28,6 +28,14 @@ UPDATE certify.credential_config
 SET credential_format = 'vc+sd-jwt'
 WHERE credential_format = 'dc+sd-jwt';
 
+DROP INDEX IF EXISTS certify.idx_vp_submission_response_code;
+DROP INDEX IF EXISTS certify.idx_vc_submission_transaction_id;
+DROP INDEX IF EXISTS certify.idx_ard_transaction_id;
+
+DROP TABLE IF EXISTS certify.vp_submission;
+DROP TABLE IF EXISTS certify.vc_submission;
+DROP TABLE IF EXISTS certify.presentation_definition;
+DROP TABLE IF EXISTS certify.authorization_request_details;
 -- Revert default proof_types_supported from EdDSA back to Ed25519
 UPDATE certify.credential_config
 SET proof_types_supported = '{"jwt": {"proof_signing_alg_values_supported": ["RS256", "ES256", "PS256", "Ed25519"]}}'::jsonb

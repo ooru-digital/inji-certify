@@ -12,3 +12,7 @@
 \ir ddl/certify-status_list_available_indices.sql
 \ir ddl/certify-shedlock.sql
 \ir ddl/certify-iar_session.sql
+\ir ddl/verify-authorization_request_details.sql
+\ir ddl/verify-presentation_definition.sql
+\ir ddl/verify-vc_submission.sql
+\ir ddl/verify-vp_submission.sql
