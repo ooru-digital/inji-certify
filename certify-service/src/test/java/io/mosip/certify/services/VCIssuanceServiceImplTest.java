@@ -16,7 +16,6 @@ import io.mosip.certify.core.exception.InvalidRequestException;
 import io.mosip.certify.core.exception.NotAuthenticatedException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.util.SecurityHelperService;
-import io.mosip.certify.enums.CredentialFormat;
 import io.mosip.certify.exception.InvalidNonceException;
 import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
@@ -138,7 +137,7 @@ public class VCIssuanceServiceImplTest {
         // JWT_VC_JSON Config DTO
         CredentialConfigurationSupportedDTO supportedDTO_JWT = new CredentialConfigurationSupportedDTO();
         supportedDTO_JWT.setScope(DEFAULT_SCOPE);
-        supportedDTO_JWT.setFormat(VCFormats.JWT_VC_JSON);
+        supportedDTO_JWT.setFormat("jwt_vc_json");
         CredentialDefinition credDefDtoJwt = new CredentialDefinition();
         credDefDtoJwt.setContext(List.of("https://www.w3.org/2018/credentials/v1"));
         credDefDtoJwt.setType(List.of("VerifiableCredential", "TestJWTCredential"));
@@ -168,16 +167,16 @@ public class VCIssuanceServiceImplTest {
             req.setDoctype("org.iso.18013.5.1.mDL"); // For mso_mdoc
             req.setFormat(VCFormats.MSO_MDOC.toString());
             req.setClaims( Map.ofEntries(Map.entry("claim1","claim2")));
-        } else if (VCFormats.SD_JWT.equals(format)) {
-            req.setFormat(CredentialFormat.VC_SD_JWT.toString());
+        } else if (VCFormats.DC_SD_JWT.equals(format)) {
+            req.setFormat(VCFormats.DC_SD_JWT);
             requestInnerCredDef.setContext(List.of("https://www.w3.org/2018/credentials/v1"));
             requestInnerCredDef.setType(List.of("VerifiableCredential", "TestJWTCredential"));
-        } else if (VCFormats.JWT_VC_JSON.equals(format)) {
-            req.setFormat(CredentialFormat.VC_JWT.toString());
+        } else if ("jwt_vc_json".equals(format)) {
+            req.setFormat("jwt_vc_json");
             requestInnerCredDef.setContext(List.of("https://www.w3.org/2018/credentials/v1"));
             requestInnerCredDef.setType(List.of("VerifiableCredential", "TestJWTCredential"));
         } else { // LDP_VC default
-            req.setFormat(CredentialFormat.VC_LDP.toString());
+            req.setFormat(VCFormats.LDP_VC);
             requestInnerCredDef.setContext(List.of("https://www.w3.org/2018/credentials/v1"));
             requestInnerCredDef.setType(List.of("VerifiableCredential", "TestCredential"));
         }
@@ -394,7 +393,7 @@ public class VCIssuanceServiceImplTest {
         ) {
             validatorMock.when(() -> CredentialRequestValidator.isValid(any(CredentialRequest.class))).thenReturn(true);
 
-            request = createValidCredentialRequest(VCFormats.JWT_VC_JSON);
+            request = createValidCredentialRequest("jwt_vc_json");
             when(parsedAccessToken.isActive()).thenReturn(true);
             when(parsedAccessToken.getClaims()).thenReturn(claimsFromAccessToken);
             when(proofValidatorFactory.getProofValidator(anyString())).thenReturn(proofValidator);

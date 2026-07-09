@@ -142,7 +142,7 @@ public class PreAuthorizedCodeService {
             // For ldp_vc: claims are defined in credential_definition.credentialSubject
             validateClaimsForLDPVC(config, providedClaims);
         } else {
-            // For mso_mdoc, vc+sd-jwt: use top-level claims with mandatory checking
+            // For mso_mdoc, dc+sd-jwt: use top-level claims with mandatory checking
             Map<String, Object> requiredClaims = config.getClaims();
             if (requiredClaims == null || requiredClaims.isEmpty()) {
                 return;

@@ -50,7 +50,7 @@ public class CredentialCacheKeyGenerator {
      */
     public static String buildTemplateKey(CredentialConfig config) {
         String issuerId = StringUtils.defaultIfBlank(config.getIssuerId(), IssuerConstants.DEFAULT_ISSUER_ID);
-        if (VCFormats.VC_SD_JWT.equals(config.getCredentialFormat())) {
+        if (VCFormats.DC_SD_JWT.equals(config.getCredentialFormat())) {
             return String.join(DELIMITER, issuerId, config.getCredentialFormat(), config.getSdJwtVct());
         }
         if (VCFormats.MSO_MDOC.equals(config.getCredentialFormat())) {

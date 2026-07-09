@@ -237,7 +237,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                     }
                     break;
 
-                case "vc+sd-jwt":
+                case VCFormats.DC_SD_JWT:
                     vcRequestDto.setVct(credentialRequest.getVct());
                     templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     templateParams.put(Constants.VCTYPE, vcRequestDto.getVct());
@@ -326,7 +326,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR, "Invalid JSON data encountered during credential generation. Please check the data provider response and template configurations.");
         } catch (CertifyException e) {
             log.error("Error during signing qr data: {}", e.getMessage());
-            throw new CertifyException("ERROR_SIGNING_QR_DATA", e.getMessage());
+            throw new CertifyException(ErrorConstants.ERROR_SIGNING_QR_DATA, e.getMessage());
         }
     }
 

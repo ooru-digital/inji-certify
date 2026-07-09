@@ -44,7 +44,7 @@ public class CredentialUtils {
     public static String getTemplateName(VCRequestDto vcRequestDto, String issuerId) {
         String resolvedIssuerId = StringUtils.defaultIfBlank(issuerId, IssuerConstants.DEFAULT_ISSUER_ID);
 
-        if (vcRequestDto.getFormat().equals(VCFormats.VC_SD_JWT)) {
+        if (vcRequestDto.getFormat().equals(VCFormats.DC_SD_JWT)) {
             return String.join(Constants.DELIMITER, resolvedIssuerId, vcRequestDto.getFormat(), vcRequestDto.getVct());
         }
         if (vcRequestDto.getFormat().equals(VCFormats.MSO_MDOC)) {

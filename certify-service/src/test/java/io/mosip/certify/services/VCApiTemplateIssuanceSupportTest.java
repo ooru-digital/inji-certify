@@ -108,7 +108,7 @@ public class VCApiTemplateIssuanceSupportTest {
     @Test
     public void issueFromTemplate_throwsCertifyException_whenUnsupportedFormat() {
         CredentialConfigurationDTO config = ldpConfig();
-        config.setCredentialFormat(VCFormats.VC_SD_JWT);
+        config.setCredentialFormat(VCFormats.DC_SD_JWT);
 
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config));

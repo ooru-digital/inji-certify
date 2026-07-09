@@ -17,6 +17,7 @@ import io.mosip.certify.api.util.Action;
 import io.mosip.certify.api.util.ActionStatus;
 import io.mosip.certify.config.VelocityEnvConfig;
 import io.mosip.certify.core.constants.Constants;
+import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.constants.VCIErrorConstants;
 import io.mosip.certify.core.dto.*;
@@ -107,7 +108,7 @@ public class CertifyIssuanceServiceImplTest {
     private static final String TEST_CNONCE = "test-cnonce";
     private static final String DEFAULT_SCOPE = "test-scope";
     private static final String DEFAULT_FORMAT_LDP = VCFormats.LDP_VC;
-    private static final String DEFAULT_FORMAT_SDJWT = VCFormats.VC_SD_JWT; // vc+sd-jwt
+    private static final String DEFAULT_FORMAT_SDJWT = VCFormats.DC_SD_JWT; // dc+sd-jwt
     private static final String DEFAULT_FORMAT_MDOC = VCFormats.MSO_MDOC; // mso_mdoc
 
     CredentialRequest request;
@@ -333,7 +334,7 @@ public class CertifyIssuanceServiceImplTest {
         when(credentialFactory.getCredential(DEFAULT_FORMAT_LDP)).thenReturn(Optional.empty());
 
         CertifyException ex = assertThrows(CertifyException.class, () -> issuanceService.getCredential(request));
-        assertEquals("ERROR_SIGNING_QR_DATA", ex.getErrorCode());
+        assertEquals(ErrorConstants.ERROR_SIGNING_QR_DATA, ex.getErrorCode());
     }
 
     @Test

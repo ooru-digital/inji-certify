@@ -96,7 +96,7 @@ public class VelocityTemplatingEngineImpl implements VCFormatter {
 
         // issuerId::format::doctype|vct
         if (parts.length == 3
-                && (Objects.equals(parts[1], VCFormats.MSO_MDOC) || Objects.equals(parts[1], VCFormats.VC_SD_JWT))) {
+                && (Objects.equals(parts[1], VCFormats.MSO_MDOC) || Objects.equals(parts[1], VCFormats.DC_SD_JWT))) {
             if (Objects.equals(parts[1], VCFormats.MSO_MDOC)) {
                 return credentialConfigRepository.findByIssuerIdAndCredentialFormatAndDocType(parts[0], parts[1], parts[2])
                         .orElseThrow(() -> configNotFound(templateKey));
@@ -112,7 +112,7 @@ public class VelocityTemplatingEngineImpl implements VCFormatter {
                 return credentialConfigRepository.findByCredentialFormatAndDocType(credentialFormat, parts[1])
                         .orElseThrow(() -> configNotFound(templateKey));
             }
-            if (Objects.equals(credentialFormat, VCFormats.VC_SD_JWT)) {
+            if (Objects.equals(credentialFormat, VCFormats.DC_SD_JWT)) {
                 return credentialConfigRepository.findByCredentialFormatAndSdJwtVct(credentialFormat, parts[1])
                         .orElseThrow(() -> configNotFound(templateKey));
             }
