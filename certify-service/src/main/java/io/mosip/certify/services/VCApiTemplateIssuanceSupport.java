@@ -131,7 +131,8 @@ public class VCApiTemplateIssuanceSupport {
             updatedTemplateParams.put("rootContext", rootContext);
             updatedTemplateParams.put("envConfigs", velocityEnvConfig.getEnvConfigs());
 
-            String unsignedCredential = cred.createCredential(updatedTemplateParams, templateName);
+            String unsignedCredential = stripBlankCredentialSubjectId(
+                    cred.createCredential(updatedTemplateParams, templateName));
             validateUnsignedCredential(unsignedCredential);
 
             ZonedDateTime issuanceTime = ZonedDateTime.now(ZoneOffset.UTC);
@@ -163,8 +164,10 @@ public class VCApiTemplateIssuanceSupport {
         if (StringUtils.isNotBlank(renderTemplateId)) {
             templateParams.put(Constants.RENDERING_TEMPLATE_ID, renderTemplateId);
         }
-        Object holderId = credentialSubject.get("id");
-        templateParams.put("_holderId", holderId != null ? holderId.toString() : "");
+        Object holderId = credentialSubject.get(VCDMConstants.ID);
+        if (holderId != null && StringUtils.isNotBlank(holderId.toString())) {
+            templateParams.put(Constants._HOLDER_ID, holderId.toString());
+        }
         templateParams.putAll(jsonObject.toMap());
         if (StringUtils.isNotBlank(idPrefix)) {
             templateParams.put(VCDMConstants.CREDENTIAL_ID, idPrefix + UUID.randomUUID());
@@ -184,6 +187,29 @@ public class VCApiTemplateIssuanceSupport {
         } catch (DateTimeParseException e) {
             log.warn("Incorrect expiry duration format: {}. Using P730D", defaultExpiryDuration);
             return Duration.parse("P730D");
+        }
+    }
+
+    private String stripBlankCredentialSubjectId(String unsignedCredential) {
+        JSONObject unsigned = new JSONObject(unsignedCredential);
+        removeBlankCredentialSubjectId(unsigned);
+        return unsigned.toString();
+    }
+
+    private void removeBlankCredentialSubjectId(JSONObject unsigned) {
+        if (!unsigned.has("credentialSubject")) {
+            return;
+        }
+        Object credentialSubject = unsigned.get("credentialSubject");
+        if (!(credentialSubject instanceof JSONObject subject)) {
+            return;
+        }
+        if (!subject.has(VCDMConstants.ID)) {
+            return;
+        }
+        Object id = subject.get(VCDMConstants.ID);
+        if (id == JSONObject.NULL || (id instanceof String holderId && holderId.isBlank())) {
+            subject.remove(VCDMConstants.ID);
         }
     }
 
