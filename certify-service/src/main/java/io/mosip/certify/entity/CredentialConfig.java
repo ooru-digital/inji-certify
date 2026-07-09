@@ -1,6 +1,7 @@
 package io.mosip.certify.entity;
 
 
+import io.hypersistence.utils.hibernate.type.array.ListArrayType;
 import io.hypersistence.utils.hibernate.type.json.JsonBinaryType;
 import io.mosip.certify.entity.attributes.ClaimsDisplayFieldsConfigs;
 import io.mosip.certify.entity.attributes.CredentialSubjectParameters;
@@ -29,6 +30,10 @@ public class CredentialConfig {
     @Id
     @Column(name = "config_id", nullable = false, updatable = false)
     private String configId;
+
+    @NotNull
+    @Column(name = "issuer_id", nullable = false, length = 64)
+    private String issuerId;
 
     private String status;
 
@@ -68,6 +73,7 @@ public class CredentialConfig {
     @Column(name = "display", columnDefinition = "jsonb")
     private List<MetaDataDisplay> display;
 
+    @Type(ListArrayType.class)
     @Column(name = "display_order", columnDefinition = "TEXT[]")
     private List<String> order;
 
@@ -75,10 +81,12 @@ public class CredentialConfig {
     private String scope;
 
     @NotNull(message = "Invalid request")
+    @Type(ListArrayType.class)
     @Column(name = "cryptographic_binding_methods_supported", columnDefinition = "TEXT[]")
     private List<String> cryptographicBindingMethodsSupported;
 
     @NotNull(message = "Invalid request")
+    @Type(ListArrayType.class)
     @Column(name = "credential_signing_alg_values_supported", columnDefinition = "TEXT[]")
     private List<String> credentialSigningAlgValuesSupported;
 
@@ -114,6 +122,7 @@ public class CredentialConfig {
     @Column(name = "plugin_configurations", columnDefinition = "jsonb")
     private List<Map<String, String>> pluginConfigurations;
 
+    @Type(ListArrayType.class)
     @Column(name = "credential_status_purpose", columnDefinition = "TEXT[]")
     private List<String> credentialStatusPurposes;
 

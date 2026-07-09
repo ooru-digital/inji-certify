@@ -24,6 +24,11 @@ public class TestVCIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument() {
+        return getDIDDocument(null);
+    }
+
+    @Override
+    public Map<String, Object> getDIDDocument(String issuerId) {
         throw new InvalidRequestException(ErrorConstants.UNSUPPORTED_IN_CURRENT_PLUGIN_MODE);
     }
 }

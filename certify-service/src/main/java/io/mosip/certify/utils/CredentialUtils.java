@@ -15,10 +15,13 @@ import info.weboftrust.ldsignatures.canonicalizer.Canonicalizer;
 import io.mosip.certify.api.dto.VCRequestDto;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.constants.VCFormats;
+import org.apache.commons.lang3.StringUtils;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.proofgenerators.ProofGenerator;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -35,13 +38,17 @@ public class CredentialUtils {
      * @return
      */
     public static String getTemplateName(VCRequestDto vcRequestDto) {
-        //TODO: Cache this entire data so we do not construct all the time.
+        return getTemplateName(vcRequestDto, IssuerConstants.DEFAULT_ISSUER_ID);
+    }
 
-        if(vcRequestDto.getFormat().equals(VCFormats.VC_SD_JWT)) {
-            return String.join(Constants.DELIMITER, vcRequestDto.getFormat(), vcRequestDto.getVct());
+    public static String getTemplateName(VCRequestDto vcRequestDto, String issuerId) {
+        String resolvedIssuerId = StringUtils.defaultIfBlank(issuerId, IssuerConstants.DEFAULT_ISSUER_ID);
+
+        if (vcRequestDto.getFormat().equals(VCFormats.VC_SD_JWT)) {
+            return String.join(Constants.DELIMITER, resolvedIssuerId, vcRequestDto.getFormat(), vcRequestDto.getVct());
         }
-        if(vcRequestDto.getFormat().equals(VCFormats.MSO_MDOC)) {
-            return String.join(Constants.DELIMITER, vcRequestDto.getFormat(), vcRequestDto.getDoctype());
+        if (vcRequestDto.getFormat().equals(VCFormats.MSO_MDOC)) {
+            return String.join(Constants.DELIMITER, resolvedIssuerId, vcRequestDto.getFormat(), vcRequestDto.getDoctype());
         }
         List<String> c = new ArrayList<>(vcRequestDto.getContext());
         List<String> t = new ArrayList<>(vcRequestDto.getType());
@@ -49,8 +56,7 @@ public class CredentialUtils {
         Collections.sort(t);
         String contextKey = String.join(",", c);
         String typeKey = String.join(",", t);
-      //  contextKey = StringUtils.hasText(vcRequestDto.getFormat())?contextKey.concat("-"+vcRequestDto.getFormat()):contextKey;
-        return String.join(Constants.DELIMITER, typeKey, contextKey,vcRequestDto.getFormat());
+        return String.join(Constants.DELIMITER, resolvedIssuerId, typeKey, contextKey, vcRequestDto.getFormat());
     }
 
     public static LdProof generateLdProof(LdProof vcLdProof, JsonLDObject j,

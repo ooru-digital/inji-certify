@@ -77,7 +77,8 @@ public class VCIssuanceControllerTest {
         credentialConfigurationSupported.setOrder(Arrays.asList("test1", "test2", "test3", "test4"));
         credentialIssuerMetadata.setCredentialConfigurationSupportedDTO(Map.of("TestCredential_ldp", credentialConfigurationSupported));
 
-        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata(Mockito.anyString())).thenReturn(credentialIssuerMetadata);
+        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata(Mockito.isNull(), Mockito.anyString()))
+                .thenReturn(credentialIssuerMetadata);
 
         mockMvc.perform(get("/issuance/.well-known/openid-credential-issuer"))
                 .andExpect(status().isOk())
@@ -86,7 +87,7 @@ public class VCIssuanceControllerTest {
                 .andExpect(jsonPath("$.credential_configurations_supported").exists())
                 .andExpect(header().string("Content-Type", "application/json"));
 
-        Mockito.verify(credentialConfigurationService).fetchCredentialIssuerMetadata("latest");
+        Mockito.verify(credentialConfigurationService).fetchCredentialIssuerMetadata(null, "latest");
     }
 
     @Test
@@ -112,7 +113,8 @@ public class VCIssuanceControllerTest {
         credentialIssuerMetadata.setCredentialConfigurationSupportedDTO(Map.of("TestCredential_ldp", credentialConfigurationSupported));
 
 
-        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata("vd13")).thenReturn(credentialIssuerMetadata);
+        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata(null, "vd13"))
+                .thenReturn(credentialIssuerMetadata);
 
         mockMvc.perform(get("/issuance/.well-known/openid-credential-issuer?version=vd13"))
                 .andExpect(status().isOk())
@@ -121,13 +123,13 @@ public class VCIssuanceControllerTest {
                 .andExpect(jsonPath("$.credential_configurations_supported").exists())
                 .andExpect(header().string("Content-Type", "application/json"));
 
-        Mockito.verify(credentialConfigurationService).fetchCredentialIssuerMetadata("vd13");
+        Mockito.verify(credentialConfigurationService).fetchCredentialIssuerMetadata(null, "vd13");
     }
 
     @Test
     public void getIssuerMetadata_withInvalidQueryParam_thenFail() throws Exception {
         Exception e = new InvalidRequestException(ErrorConstants.UNSUPPORTED_OPENID_VERSION);
-        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata("v123")).thenThrow(e);
+        Mockito.when(credentialConfigurationService.fetchCredentialIssuerMetadata(null, "v123")).thenThrow(e);
         mockMvc.perform(get("/issuance/.well-known/openid-credential-issuer?version=v123"))
                 .andExpect(status().is4xxClientError());
     }

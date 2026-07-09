@@ -19,6 +19,7 @@ CREATE TABLE status_list_credential (
     vc_document VARCHAR NOT NULL,           -- Stores the entire Verifiable Credential JSON document.
     credential_type VARCHAR(100) NOT NULL, -- Type of the status list (e.g., 'StatusList2021Credential')
     status_purpose VARCHAR(100),             -- Intended purpose of this list within the system (e.g., 'revocation', 'suspension', 'general'). NULLABLE.
+    issuer_id VARCHAR(64),                   -- Issuer that signs this status list (NULL = platform default issuer)
     capacity_in_kb BIGINT,                        --- length of status list
     credential_status credential_status_enum, -- Use the created ENUM type here
     cr_dtimes timestamp NOT NULL default now(),
@@ -36,6 +37,7 @@ COMMENT ON COLUMN status_list_credential.upd_dtimes IS 'Timestamp when this Stat
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_slc_status_purpose ON status_list_credential(status_purpose);
+CREATE INDEX IF NOT EXISTS idx_slc_issuer_id ON status_list_credential(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_slc_credential_type ON status_list_credential(credential_type);
 CREATE INDEX IF NOT EXISTS idx_slc_credential_status ON status_list_credential(credential_status);
 CREATE INDEX IF NOT EXISTS idx_slc_cr_dtimes ON status_list_credential(cr_dtimes);

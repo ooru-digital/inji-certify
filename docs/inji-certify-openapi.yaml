@@ -1457,6 +1457,43 @@ paths:
       servers:
         - url: 'http://localhost:8090/v1/certify'
           description: Generated server url
+  /vc-api/credentials/issue:
+    post:
+      tags:
+        - W3C VC API
+      summary: Issue signed verifiable credential (client credential engine)
+      description: |
+        Server-to-server issuance using an onboarded credential configuration and existing `vcTemplate`.
+        Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`. v1 supports `ldp_vc` only.
+      operationId: vcApiIssueCredential
+      parameters:
+        - name: X-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VCApiIssueRequest'
+      responses:
+        '200':
+          description: Signed verifiable credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCApiIssueResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: Missing or invalid API key
+        '404':
+          description: Unknown credential configuration id
+      servers:
+        - url: 'http://localhost:8090/v1/certify'
+          description: Generated server url
   /credentials/status:
     post:
       tags:
@@ -3110,3 +3147,30 @@ components:
           type: string
         issuer_state:
           type: string
+    VCApiIssueOptions:
+      type: object
+      required:
+        - credentialConfigurationId
+      properties:
+        credentialConfigurationId:
+          type: string
+          description: Active credential configuration key id (credentialConfigKeyId)
+    VCApiIssueRequest:
+      type: object
+      required:
+        - credentialSubject
+        - options
+      properties:
+        credentialSubject:
+          type: object
+          additionalProperties: true
+          description: Claim values matching vcTemplate Velocity placeholders
+        options:
+          $ref: '#/components/schemas/VCApiIssueOptions'
+    VCApiIssueResponse:
+      type: object
+      properties:
+        verifiableCredential:
+          type: object
+          additionalProperties: true
+          description: Signed LDP VC including proof

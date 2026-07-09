@@ -80,44 +80,59 @@ public class VelocityTemplatingEngineImpl implements VCFormatter {
             throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Invalid template key format: " + templateKey);
         }
 
-        String[] parts = templateKey.split(DELIMITER, 3);
+        String[] parts = templateKey.split(DELIMITER, -1);
         if (parts.length < 2) {
-            log.error("Invalid templateKey format for getCachedCredentialConfig: {}. Expected 3 parts.", templateKey);
-            throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Template key format requires 3 parts: " + templateKey);
-        } else if(parts.length == 2) {
-            String credentialFormat = parts[0];
-            if (Objects.equals(credentialFormat, VCFormats.MSO_MDOC)) {
-                String doctype = parts[1];
-                return credentialConfigRepository.findByCredentialFormatAndDocType(credentialFormat, doctype)
-                        .orElseThrow(() -> {
-                            log.error("CredentialConfig not found in DB for key: {}", templateKey);
-                            return new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "CredentialConfig not found for key: " + templateKey);
-                        });
-            } else if (Objects.equals(credentialFormat, VCFormats.VC_SD_JWT)) {
-                String vct = parts[1];
-                return credentialConfigRepository.findByCredentialFormatAndSdJwtVct(credentialFormat, vct)
-                        .orElseThrow(() -> {
-                            log.error("CredentialConfig not found in DB for key: {}", templateKey);
-                            return new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "CredentialConfig not found for key: " + templateKey);
-                        });
-            } else {
-                throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Undefined VC Format");
-            }
+            log.error("Invalid templateKey format for getCachedCredentialConfig: {}", templateKey);
+            throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Invalid template key format: " + templateKey);
         }
 
-        String credentialType = parts[0];
-        String context = parts[1];
-        String credentialFormat = parts[2];
+        // issuerId::credentialType::context::credentialFormat
+        if (parts.length == 4) {
+            return credentialConfigRepository
+                    .findByIssuerIdAndCredentialFormatAndCredentialTypeAndContext(
+                            parts[0], parts[3], parts[1], parts[2])
+                    .orElseThrow(() -> configNotFound(templateKey));
+        }
 
-        // TemplateId constructor order: context, credentialType, credentialFormat
-//        TemplateId tid = new TemplateId(context, credentialType, credentialFormat);
+        // issuerId::format::doctype|vct
+        if (parts.length == 3
+                && (Objects.equals(parts[1], VCFormats.MSO_MDOC) || Objects.equals(parts[1], VCFormats.VC_SD_JWT))) {
+            if (Objects.equals(parts[1], VCFormats.MSO_MDOC)) {
+                return credentialConfigRepository.findByIssuerIdAndCredentialFormatAndDocType(parts[0], parts[1], parts[2])
+                        .orElseThrow(() -> configNotFound(templateKey));
+            }
+            return credentialConfigRepository.findByIssuerIdAndCredentialFormatAndSdJwtVct(parts[0], parts[1], parts[2])
+                    .orElseThrow(() -> configNotFound(templateKey));
+        }
 
-        return credentialConfigRepository
-                .findByCredentialFormatAndCredentialTypeAndContext(credentialFormat, credentialType, context)
-                .orElseThrow(() -> {
-                    log.error("CredentialConfig not found in DB for key: {}", templateKey);
-                    return new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "CredentialConfig not found for key: " + templateKey);
-                });
+        // Legacy: format::doctype|vct
+        if (parts.length == 2) {
+            String credentialFormat = parts[0];
+            if (Objects.equals(credentialFormat, VCFormats.MSO_MDOC)) {
+                return credentialConfigRepository.findByCredentialFormatAndDocType(credentialFormat, parts[1])
+                        .orElseThrow(() -> configNotFound(templateKey));
+            }
+            if (Objects.equals(credentialFormat, VCFormats.VC_SD_JWT)) {
+                return credentialConfigRepository.findByCredentialFormatAndSdJwtVct(credentialFormat, parts[1])
+                        .orElseThrow(() -> configNotFound(templateKey));
+            }
+            throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Undefined VC Format");
+        }
+
+        // Legacy: credentialType::context::credentialFormat
+        if (parts.length == 3) {
+            return credentialConfigRepository
+                    .findByCredentialFormatAndCredentialTypeAndContext(parts[2], parts[0], parts[1])
+                    .orElseThrow(() -> configNotFound(templateKey));
+        }
+
+        throw new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND, "Invalid template key format: " + templateKey);
+    }
+
+    private CertifyException configNotFound(String templateKey) {
+        log.error("CredentialConfig not found in DB for key: {}", templateKey);
+        return new CertifyException(ErrorConstants.EXPECTED_TEMPLATE_NOT_FOUND,
+                "CredentialConfig not found for key: " + templateKey);
     }
 
 

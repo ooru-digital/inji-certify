@@ -25,7 +25,7 @@ import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
-
+import io.mosip.certify.config.IssuerContext;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCIErrorConstants;
@@ -37,6 +37,7 @@ import io.mosip.certify.core.exception.InvalidRequestException;
 import io.mosip.certify.exception.InvalidNonceException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +57,16 @@ public class JwtProofValidator implements ProofValidator {
 
     @Value("${mosip.certify.identifier}")
     private String credentialIdentifier;
+
+    @Autowired
+    private IssuerContext issuerContext;
+
+    private String resolveCredentialIdentifier() {
+        if (issuerContext.getCurrent() != null && issuerContext.getCurrent().getIdentifier() != null) {
+            return issuerContext.getCurrent().getIdentifier();
+        }
+        return credentialIdentifier;
+    }
 
     @Override
     public String getProofType() {
@@ -122,8 +133,10 @@ public class JwtProofValidator implements ProofValidator {
             }
 
             JWTClaimsSet.Builder proofJwtClaimsBuilder = new JWTClaimsSet.Builder()
-                    .audience(credentialIdentifier)
-                    .claim("nonce", cNonce);
+                    .audience(resolveCredentialIdentifier());
+            if (!StringUtils.isEmpty(cNonce)) {
+                proofJwtClaimsBuilder = proofJwtClaimsBuilder.claim("nonce", cNonce);
+            }
 
             // if the proof contains issuer claim, then it should match with the client id ref: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-ID1.html#section-7.2.1.1-2.2.2.1
             // https://github.com/openid/OpenID4VCI/issues/349

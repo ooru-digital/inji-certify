@@ -97,9 +97,47 @@ CREATE TABLE certify.rendering_template (
                                     CONSTRAINT pk_svgtmp_id PRIMARY KEY (id)
 );
 
+-- Multi-issuer: issuer registry (must exist before credential_config.issuer_id FK)
+CREATE TABLE certify.issuer (
+    issuer_id               VARCHAR(64)   NOT NULL,
+    credential_issuer_url   VARCHAR(512)  NOT NULL,
+    did_url                 VARCHAR(512)  NOT NULL,
+    identifier              VARCHAR(512)  NOT NULL,
+    display                 JSONB         NOT NULL,
+    authorization_servers   JSONB,
+    key_manager_app_id      VARCHAR(36),
+    key_manager_ref_id      VARCHAR(128),
+    signature_crypto_suite  VARCHAR(64),
+    signature_algo          VARCHAR(32),
+    status                  VARCHAR(16)   NOT NULL DEFAULT 'active',
+    cr_dtimes               TIMESTAMP     NOT NULL DEFAULT NOW(),
+    upd_dtimes              TIMESTAMP,
+    CONSTRAINT pk_issuer_id PRIMARY KEY (issuer_id)
+);
+
+INSERT INTO certify.issuer (
+    issuer_id, credential_issuer_url, did_url, identifier, display,
+    authorization_servers, key_manager_app_id, key_manager_ref_id,
+    signature_crypto_suite, signature_algo, status, cr_dtimes
+) VALUES (
+    'default',
+    'http://certify:8090/v1/certify',
+    'did:web:8398-2405-201-1029-3025-e142-9ad3-e1f2-f543.ngrok-free.app',
+    'http://certify:8090',
+    '[{"name": "Farmer Issuer", "locale": "en"}]'::jsonb,
+    '["https://esignet-mock.collab.mosip.net"]'::jsonb,
+    'CERTIFY_VC_SIGN_ED25519',
+    'ED25519_SIGN',
+    'Ed25519Signature2020',
+    'EdDSA',
+    'active',
+    NOW()
+);
+
 CREATE TABLE IF NOT EXISTS certify.credential_config (
     credential_config_key_id VARCHAR(2048) NOT NULL UNIQUE,
     config_id VARCHAR(255) NOT NULL,
+    issuer_id VARCHAR(64) NOT NULL DEFAULT 'default',
     status VARCHAR(255),
     vc_template VARCHAR,
     doctype VARCHAR,
@@ -128,25 +166,29 @@ CREATE TABLE IF NOT EXISTS certify.credential_config (
     qr_signature_algo TEXT,
     cr_dtimes TIMESTAMP NOT NULL,
     upd_dtimes TIMESTAMP,
-    CONSTRAINT pk_config_id PRIMARY KEY (config_id)
+    CONSTRAINT pk_config_id PRIMARY KEY (config_id),
+    CONSTRAINT fk_credential_config_issuer FOREIGN KEY (issuer_id) REFERENCES certify.issuer(issuer_id)
 );
 
+CREATE INDEX idx_credential_config_issuer_id ON certify.credential_config(issuer_id);
+
 CREATE UNIQUE INDEX idx_credential_config_type_context_unique
-ON certify.credential_config(credential_type, context, credential_format)
+ON certify.credential_config(issuer_id, credential_type, context, credential_format)
 WHERE credential_type IS NOT NULL AND credential_type <> ''
 AND context IS NOT NULL AND context <> '';
 
 CREATE UNIQUE INDEX idx_credential_config_sd_jwt_vct_unique
-ON certify.credential_config(sd_jwt_vct, credential_format)
+ON certify.credential_config(issuer_id, sd_jwt_vct, credential_format)
 WHERE sd_jwt_vct IS NOT NULL and sd_jwt_vct <> '';
 
 CREATE UNIQUE INDEX idx_credential_config_doctype_unique
-ON certify.credential_config(doctype, credential_format)
+ON certify.credential_config(issuer_id, doctype, credential_format)
 WHERE doctype IS NOT NULL and doctype <> '';
 
 INSERT INTO certify.credential_config (
     credential_config_key_id,
     config_id,
+    issuer_id,
     status,
     vc_template,
     doctype,
@@ -178,6 +220,7 @@ INSERT INTO certify.credential_config (
 VALUES (
     'FarmerCredential',
     gen_random_uuid()::VARCHAR(255),  -- generating a unique config_id
+    'default',
     'active',  -- assuming an active status
     'ewogICAgICAgICAgIkBjb250ZXh0IjogWwogICAgICAgICAgICAgICJodHRwczovL3d3dy53My5vcmcvMjAxOC9jcmVkZW50aWFscy92MSIsCiAgICAgICAgICAgICAgImh0dHBzOi8vcGl5dXNoNzAzNC5naXRodWIuaW8vbXktZmlsZXMvZmFybWVyLmpzb24iLAogICAgICAgICAgICAgICJodHRwczovL3czaWQub3JnL3NlY3VyaXR5L3N1aXRlcy9lZDI1NTE5LTIwMjAvdjEiCiAgICAgICAgICBdLAogICAgICAgICAgImlzc3VlciI6ICIke19pc3N1ZXJ9IiwKICAgICAgICAgICJ0eXBlIjogWwogICAgICAgICAgICAgICJWZXJpZmlhYmxlQ3JlZGVudGlhbCIsCiAgICAgICAgICAgICAgIkZhcm1lckNyZWRlbnRpYWwiCiAgICAgICAgICBdLAogICAgICAgICAgImlzc3VhbmNlRGF0ZSI6ICIke3ZhbGlkRnJvbX0iLAogICAgICAgICAgImV4cGlyYXRpb25EYXRlIjogIiR7dmFsaWRVbnRpbH0iLAogICAgICAgICAgImNyZWRlbnRpYWxTdWJqZWN0IjogewogICAgICAgICAgICAgICJpZCI6ICIke19ob2xkZXJJZH0iLAogICAgICAgICAgICAgICJmdWxsTmFtZSI6ICIke2Z1bGxOYW1lfSIsCiAgICAgICAgICAgICAgIm1vYmlsZU51bWJlciI6ICIke21vYmlsZU51bWJlcn0iLAogICAgICAgICAgICAgICJkYXRlT2ZCaXJ0aCI6ICIke2RhdGVPZkJpcnRofSIsCiAgICAgICAgICAgICAgImdlbmRlciI6ICIke2dlbmRlcn0iLAogICAgICAgICAgICAgICJzdGF0ZSI6ICIke3N0YXRlfSIsCiAgICAgICAgICAgICAgImRpc3RyaWN0IjogIiR7ZGlzdHJpY3R9IiwKICAgICAgICAgICAgICAidmlsbGFnZU9yVG93biI6ICIke3ZpbGxhZ2VPclRvd259IiwKICAgICAgICAgICAgICAicG9zdGFsQ29kZSI6ICIke3Bvc3RhbENvZGV9IiwKICAgICAgICAgICAgICAibGFuZEFyZWEiOiAiJHtsYW5kQXJlYX0iLAogICAgICAgICAgICAgICJsYW5kT3duZXJzaGlwVHlwZSI6ICIke2xhbmRPd25lcnNoaXBUeXBlfSIsCiAgICAgICAgICAgICAgInByaW1hcnlDcm9wVHlwZSI6ICIke3ByaW1hcnlDcm9wVHlwZX0iLAogICAgICAgICAgICAgICJzZWNvbmRhcnlDcm9wVHlwZSI6ICIke3NlY29uZGFyeUNyb3BUeXBlfSIsCiAgICAgICAgICAgICAgImZhY2UiOiAiJHtmYWNlfSIsCiAgICAgICAgICAgICAgImZhcm1lcklEIjogIiR7ZmFybWVySUR9IgogICAgICAgICAgfQogICAgIH0=',  -- the VC template from the JSON
     NULL,  -- doctype from JSON
@@ -224,7 +267,8 @@ CREATE TABLE certify.status_list_credential (
     vc_document VARCHAR NOT NULL,           -- Stores the entire Verifiable Credential JSON document.
     credential_type VARCHAR(100) NOT NULL, -- Type of the status list (e.g., 'StatusList2021Credential')
     status_purpose VARCHAR(100),             -- Intended purpose of this list within the system (e.g., 'revocation', 'suspension', 'general'). NULLABLE.
-    capacity BIGINT,                        --- length of status list
+    issuer_id VARCHAR(64),                   -- Issuer that signs this status list (NULL = platform default issuer)
+    capacity_in_kb BIGINT,                  --- length of status list
     credential_status credential_status_enum, -- Use the created ENUM type here
     cr_dtimes timestamp NOT NULL default now(),
     upd_dtimes timestamp                    -- When this VC record was last updated in the system
@@ -232,6 +276,7 @@ CREATE TABLE certify.status_list_credential (
 
 
 CREATE INDEX IF NOT EXISTS idx_slc_status_purpose ON certify.status_list_credential(status_purpose);
+CREATE INDEX IF NOT EXISTS idx_slc_issuer_id ON certify.status_list_credential(issuer_id);
 CREATE INDEX IF NOT EXISTS idx_slc_credential_type ON certify.status_list_credential(credential_type);
 CREATE INDEX IF NOT EXISTS idx_slc_credential_status ON certify.status_list_credential(credential_status);
 CREATE INDEX IF NOT EXISTS idx_slc_cr_dtimes ON certify.status_list_credential(cr_dtimes);

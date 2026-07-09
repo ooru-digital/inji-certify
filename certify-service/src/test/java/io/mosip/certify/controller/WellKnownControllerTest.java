@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -52,41 +53,63 @@ class WellKnownControllerTest {
     @Test
     void getCredentialIssuerMetadata_noVersionParam_defaultsToLatest() throws Exception {
         CredentialIssuerMetadataDTO mockMetadata = mock(CredentialIssuerMetadataDTO.class);
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata("latest")).thenReturn(mockMetadata);
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(isNull(), eq("latest"))).thenReturn(mockMetadata);
         mockMvc.perform(get("/.well-known/openid-credential-issuer"))
                 .andExpect(status().isOk());
-        verify(credentialConfigurationService, times(1)).fetchCredentialIssuerMetadata("latest");
+        verify(credentialConfigurationService, times(1)).fetchCredentialIssuerMetadata(isNull(), eq("latest"));
     }
 
     @Test
     void getCredentialIssuerMetadata_emptyVersion_defaultsToLatest() throws Exception {
         CredentialIssuerMetadataDTO mockMetadata = mock(CredentialIssuerMetadataDTO.class);
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata("latest")).thenReturn(mockMetadata);
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(isNull(), eq("latest"))).thenReturn(mockMetadata);
         mockMvc.perform(get("/.well-known/openid-credential-issuer?version="))
                 .andExpect(status().isOk());
-        verify(credentialConfigurationService, times(1)).fetchCredentialIssuerMetadata("latest");
+        verify(credentialConfigurationService, times(1)).fetchCredentialIssuerMetadata(isNull(), eq("latest"));
     }
 
     @Test
     void getCredentialIssuerMetadata_unsupportedVersion_returnsError() throws Exception {
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata("unsupported")).thenThrow( new CertifyException("UNSUPPORTED_VERSION", "Unsupported version"));
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(isNull(), eq("unsupported")))
+                .thenThrow(new CertifyException("UNSUPPORTED_VERSION", "Unsupported version"));
         mockMvc.perform(get("/.well-known/openid-credential-issuer?version=unsupported"))
                 .andExpect(status().is2xxSuccessful())
                 .andExpect(jsonPath("$.errors[0].errorCode").value("UNSUPPORTED_VERSION"));
     }
 
     @Test
+    void getCredentialIssuerMetadata_withIssuerId() throws Exception {
+        CredentialIssuerMetadataDTO mockMetadata = mock(CredentialIssuerMetadataDTO.class);
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(eq("custom-issuer"), eq("latest")))
+                .thenReturn(mockMetadata);
+        mockMvc.perform(get("/.well-known/openid-credential-issuer?issuerId=custom-issuer"))
+                .andExpect(status().isOk());
+        verify(credentialConfigurationService, times(1))
+                .fetchCredentialIssuerMetadata(eq("custom-issuer"), eq("latest"));
+    }
+
+    @Test
     void getDIDDocument_success() throws Exception {
         Map<String, Object> mockDidDoc = Collections.singletonMap("id", "did:example:123");
-        when(vcIssuanceService.getDIDDocument()).thenReturn(mockDidDoc);
+        when(vcIssuanceService.getDIDDocument(isNull())).thenReturn(mockDidDoc);
         mockMvc.perform(get("/.well-known/did.json"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("did:example:123"));
     }
 
     @Test
+    void getIssuerDIDDocument_success() throws Exception {
+        Map<String, Object> mockDidDoc = Collections.singletonMap("id", "did:web:example.com:v1:certify:issuers:iiitb");
+        when(vcIssuanceService.getDIDDocument(eq("iiitb"))).thenReturn(mockDidDoc);
+        mockMvc.perform(get("/issuers/iiitb/did.json"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("did:web:example.com:v1:certify:issuers:iiitb"));
+        verify(vcIssuanceService, times(1)).getDIDDocument(eq("iiitb"));
+    }
+
+    @Test
     void getDIDDocument_notFound_returnsEmpty() throws Exception {
-        when(vcIssuanceService.getDIDDocument()).thenReturn(null);
+        when(vcIssuanceService.getDIDDocument(isNull())).thenReturn(null);
         mockMvc.perform(get("/.well-known/did.json"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
@@ -94,7 +117,7 @@ class WellKnownControllerTest {
 
     @Test
     void getDIDDocument_serviceThrowsException_returnsError() throws Exception {
-        when(vcIssuanceService.getDIDDocument()).thenThrow(new InvalidRequestException("unsupported_in_current_plugin_mode"));
+        when(vcIssuanceService.getDIDDocument(isNull())).thenThrow(new InvalidRequestException("unsupported_in_current_plugin_mode"));
         mockMvc.perform(get("/.well-known/did.json"))
                 .andExpect(status().is2xxSuccessful())
                 .andExpect(jsonPath("$.errors[0].errorCode").value("unsupported_in_current_plugin_mode"));

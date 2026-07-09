@@ -82,7 +82,7 @@ public class VCIssuanceController {
     @GetMapping(value = "/.well-known/openid-credential-issuer",produces = "application/json")
     public CredentialIssuerMetadataDTO getMetadata(
             @RequestParam(name = "version", required = false, defaultValue = "latest") String version) {
-        return credentialConfigurationService.fetchCredentialIssuerMetadata(version);
+        return credentialConfigurationService.fetchCredentialIssuerMetadata(null, version);
     }
 
     @Deprecated

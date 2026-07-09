@@ -27,6 +27,7 @@ import io.mosip.certify.core.exception.NotAuthenticatedException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.spi.VCIssuanceService;
 import io.mosip.certify.core.util.SecurityHelperService;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.utils.VCIssuanceUtil;
@@ -71,8 +72,13 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
 
+    @Autowired
+    private IssuerResolver issuerResolver;
+
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId());
+
         boolean isValidCredentialRequest = CredentialRequestValidator.isValid(credentialRequest);
         if(!isValidCredentialRequest) {
             throw new InvalidRequestException(VCIErrorConstants.INVALID_CREDENTIAL_REQUEST);
@@ -84,7 +90,9 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
-            Optional<CredentialMetadata> result = VCIssuanceUtil.getScopeCredentialMapping(scope, credentialRequest.getFormat(), credentialConfigurationService.fetchCredentialIssuerMetadata("latest"), credentialRequest);
+            Optional<CredentialMetadata> result = VCIssuanceUtil.getScopeCredentialMapping(scope, credentialRequest.getFormat(),
+                    credentialConfigurationService.fetchCredentialIssuerMetadata(issuer.getIssuerId(), "latest"),
+                    credentialRequest);
             if(result.isPresent()) {
                 credentialMetadata = result.get(); //considering only first credential scope
                 break;
@@ -114,6 +122,11 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument() {
+        return getDIDDocument(null);
+    }
+
+    @Override
+    public Map<String, Object> getDIDDocument(String issuerId) {
         throw new InvalidRequestException(ErrorConstants.UNSUPPORTED_IN_CURRENT_PLUGIN_MODE);
     }
 

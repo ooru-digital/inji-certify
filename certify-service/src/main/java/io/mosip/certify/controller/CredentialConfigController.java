@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/credential-configurations")
@@ -18,6 +20,12 @@ public class CredentialConfigController {
 
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
+
+    @GetMapping(produces = "application/json")
+    public ResponseEntity<List<CredentialConfigurationDTO>> listCredentialConfigurations(
+            @RequestParam(value = "issuerId", required = false) String issuerId) throws JsonProcessingException {
+        return ResponseEntity.ok(credentialConfigurationService.listCredentialConfigurations(issuerId));
+    }
 
     @PostMapping(produces = "application/json")
     public ResponseEntity<CredentialConfigResponse> addCredentialConfiguration(@Valid @RequestBody CredentialConfigurationDTO credentialConfigurationRequest) throws JsonProcessingException {

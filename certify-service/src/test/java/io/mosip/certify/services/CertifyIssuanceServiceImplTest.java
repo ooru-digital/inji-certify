@@ -31,6 +31,7 @@ import io.mosip.certify.credential.MDocCredential;
 import io.mosip.certify.credential.SDJWT;
 import io.mosip.certify.credential.W3CJsonLD;
 import io.mosip.certify.exception.InvalidNonceException;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.utils.LedgerUtils;
@@ -84,6 +85,8 @@ public class CertifyIssuanceServiceImplTest {
     private CredentialFactory credentialFactory;
     @Mock
     private CredentialConfigurationService credentialConfigurationService;
+    @Mock
+    private IssuerResolver issuerResolver;
     @Mock
     private LedgerUtils ledgerUtils;
     @Mock
@@ -205,8 +208,16 @@ public class CertifyIssuanceServiceImplTest {
 
         mockGlobalCredentialIssuerMetadataDTO.setCredentialConfigurationSupportedDTO(supportedCredsMap);
 
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata("latest"))
-                .thenReturn(mockGlobalCredentialIssuerMetadataDTO); // Default mock
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(eq("default"), eq("latest")))
+                .thenReturn(mockGlobalCredentialIssuerMetadataDTO);
+
+        Issuer defaultIssuer = new Issuer();
+        defaultIssuer.setIssuerId("default");
+        defaultIssuer.setIdentifier("https://test.issuer.com");
+        defaultIssuer.setDidUrl("https://test.issuer.com");
+        defaultIssuer.setCredentialIssuerUrl("https://test.issuer.com");
+        defaultIssuer.setStatus("active");
+        when(issuerResolver.resolve(any())).thenReturn(defaultIssuer);
     }
 
     private CredentialRequest createValidCredentialRequest(String format) {
@@ -528,7 +539,7 @@ public class CertifyIssuanceServiceImplTest {
         assertTrue("Response credential should be JsonLDObject", response.getCredential() instanceof JsonLDObject);
 
         // Assert
-        verify(statusListCredentialService).addCredentialStatus(any(JSONObject.class), eq("revocation"));
+        verify(statusListCredentialService).addCredentialStatus(any(JSONObject.class), eq("revocation"), any());
     }
 
     @Test
