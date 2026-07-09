@@ -8,7 +8,9 @@ import io.mosip.certify.core.constants.VCIErrorConstants;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.credential.Credential;
 import io.mosip.certify.credential.CredentialFactory;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.entity.StatusListCredential;
+import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.repository.StatusListCredentialRepository;
 import io.mosip.certify.utils.BitStringStatusListUtils;
 import io.mosip.certify.vcformatters.VCFormatter;
@@ -37,6 +39,9 @@ public class StatusListCredentialService {
 
     @Autowired
     private StatusListCredentialRepository statusListCredentialRepository;
+
+    @Autowired
+    private IssuerRepository issuerRepository;
 
     @Autowired
     private VCFormatter vcFormatter;
@@ -70,6 +75,10 @@ public class StatusListCredentialService {
 
     @Value("${mosip.certify.status-list.key-manager-ref-id:ED25519_SIGN}")
     private String statusListKeyManagerRefId;
+
+    private record SigningContext(String didUrl, String keyManagerAppId, String keyManagerRefId,
+                                  String signatureAlgo, String signatureCryptoSuite) {
+    }
 
     public String getStatusListCredential(String id) throws CertifyException {
         log.info("Processing status list credential request for ID: {}", id);
@@ -114,7 +123,20 @@ public class StatusListCredentialService {
      * @return Optional containing StatusListCredential if found
      */
     public Optional<StatusListCredential> findSuitableStatusList(String statusPurpose, StatusListCredential.CredentialStatus status) {
-        return statusListCredentialRepository.findFirstByStatusPurposeAndCredentialStatusOrderByCreatedDtimesDesc(statusPurpose, status);
+        return findSuitableStatusList(statusPurpose, status, null);
+    }
+
+    public Optional<StatusListCredential> findSuitableStatusList(String statusPurpose,
+                                                                 StatusListCredential.CredentialStatus status,
+                                                                 String issuerId) {
+        if (issuerId != null && !issuerId.isBlank()) {
+            return statusListCredentialRepository
+                    .findFirstByStatusPurposeAndCredentialStatusAndIssuerIdOrderByCreatedDtimesDesc(
+                            statusPurpose, status, issuerId);
+        }
+        return statusListCredentialRepository
+                .findFirstByStatusPurposeAndCredentialStatusAndIssuerIdIsNullOrderByCreatedDtimesDesc(
+                        statusPurpose, status);
     }
 
     /**
@@ -125,7 +147,17 @@ public class StatusListCredentialService {
      */
     @Transactional
     public StatusListCredential generateStatusListCredential(String statusPurpose) {
-        log.info("Generating new status list credential with purpose: {}", statusPurpose);
+        return generateStatusListCredential(statusPurpose, null);
+    }
+
+    /**
+     * Generate a new status list credential for the specified purpose and issuer.
+     */
+    @Transactional
+    public StatusListCredential generateStatusListCredential(String statusPurpose, Issuer issuer) {
+        SigningContext signingContext = resolveSigningContext(issuer);
+        log.info("Generating new status list credential with purpose: {} issuer: {}",
+                statusPurpose, issuer != null ? issuer.getIssuerId() : "default");
 
         try {
             // Generate unique ID for status list
@@ -145,7 +177,7 @@ public class StatusListCredentialService {
             statusListData.put("type", typeList);
 
             statusListData.put("id", statusListId);
-            statusListData.put("issuer", didUrl);
+            statusListData.put("issuer", signingContext.didUrl());
             statusListData.put("validFrom", new Date().toInstant().toString());
 
             JSONObject credentialSubject = new JSONObject();
@@ -161,7 +193,7 @@ public class StatusListCredentialService {
 
             log.debug("Created status list VC: id={}, purpose={}", statusListId, statusPurpose);
 
-            String vcDocS = addProofAndHandleResult(statusListData, ErrorConstants.VC_ISSUANCE_FAILED);
+            String vcDocS = addProofAndHandleResult(statusListData, ErrorConstants.VC_ISSUANCE_FAILED, signingContext);
 
             // Create and save the status list credential entity
             StatusListCredential statusListCredential = new StatusListCredential();
@@ -169,6 +201,7 @@ public class StatusListCredentialService {
             statusListCredential.setVcDocument(vcDocS);
             statusListCredential.setCredentialType("BitstringStatusListCredential");
             statusListCredential.setStatusPurpose(statusPurpose);
+            statusListCredential.setIssuerId(issuer != null ? issuer.getIssuerId() : null);
             statusListCredential.setCapacityInKB(statusListSizeInKB);
             statusListCredential.setCredentialStatus(StatusListCredential.CredentialStatus.AVAILABLE);
             statusListCredential.setCreatedDtimes(LocalDateTime.now());
@@ -232,13 +265,19 @@ public class StatusListCredentialService {
      */
     @Transactional
     public StatusListCredential findOrCreateStatusList(String statusPurpose) {
-        log.info("Finding or creating status list for purpose: {}", statusPurpose);
+        return findOrCreateStatusList(statusPurpose, null);
+    }
 
-        // Try to find an existing suitable status list
-        return findSuitableStatusList(statusPurpose, StatusListCredential.CredentialStatus.AVAILABLE)
+    @Transactional
+    public StatusListCredential findOrCreateStatusList(String statusPurpose, Issuer issuer) {
+        log.info("Finding or creating status list for purpose: {} issuer: {}",
+                statusPurpose, issuer != null ? issuer.getIssuerId() : "default");
+
+        String issuerId = issuer != null ? issuer.getIssuerId() : null;
+        return findSuitableStatusList(statusPurpose, StatusListCredential.CredentialStatus.AVAILABLE, issuerId)
                 .orElseGet(() -> {
                     log.info("No suitable status list found, generating a new one");
-                    return generateStatusListCredential(statusPurpose);
+                    return generateStatusListCredential(statusPurpose, issuer);
                 });
     }
 
@@ -266,13 +305,13 @@ public class StatusListCredentialService {
         log.info("Re-signing status list credential");
 
         try {
-            // Remove existing proof if present before re-signing
             JSONObject vcDocument = new JSONObject(vcDocumentJson);
             if (vcDocument.has("proof")) {
                 vcDocument.remove("proof");
             }
 
-            return addProofAndHandleResult(vcDocument, ErrorConstants.VC_RESIGNING_FAILED);
+            SigningContext signingContext = resolveSigningContextFromVcDocument(vcDocument);
+            return addProofAndHandleResult(vcDocument, ErrorConstants.VC_RESIGNING_FAILED, signingContext);
         } catch (Exception e) {
             log.error("Error re-signing status list credential", e);
             throw new CertifyException(ErrorConstants.VC_RESIGNING_FAILED);
@@ -281,15 +320,21 @@ public class StatusListCredentialService {
 
     @Transactional
     public void addCredentialStatus(JSONObject jsonObject, String statusPurpose) throws CertifyException {
-        log.info("Adding credential status for status list integration");
+        addCredentialStatus(jsonObject, statusPurpose, null);
+    }
+
+    @Transactional
+    public void addCredentialStatus(JSONObject jsonObject, String statusPurpose, Issuer issuer) throws CertifyException {
+        log.info("Adding credential status for status list integration issuer: {}",
+                issuer != null ? issuer.getIssuerId() : "default");
 
         // Assign next available index using database approach
-        StatusListCredential statusList = findOrCreateStatusList(statusPurpose);
+        StatusListCredential statusList = findOrCreateStatusList(statusPurpose, issuer);
         long assignedIndex = findNextAvailableIndex(statusList.getId());
 
         if (assignedIndex == -1) {
             log.info("Current status list is full, creating a new one");
-            statusList = generateStatusListCredential(statusPurpose);
+            statusList = generateStatusListCredential(statusPurpose, issuer);
             assignedIndex = findNextAvailableIndex(statusList.getId());
 
             if (assignedIndex == -1) {
@@ -313,28 +358,19 @@ public class StatusListCredentialService {
     /**
      * Helper method to add a proof to a VC and handle the result.
      */
-    private String addProofAndHandleResult(JSONObject vcDocument, String errorConstant) throws CertifyException {
-        List<List<String>> aliases =
-                (keyAliasMapper != null) ? keyAliasMapper.get(signatureAlgo) : null;
-        if (aliases == null || aliases.isEmpty()
-                || aliases.get(0) == null || aliases.get(0).isEmpty()
-                || aliases.get(0).get(0) == null || aliases.get(0).get(0).isBlank()) {
-            log.error("No key chooser configuration found for the signature crypto suite: {}", signatureCryptoSuite);
-            throw new CertifyException(ErrorConstants.KEY_ALIAS_NOT_CONFIGURED, "No key chooser configuration found for the signature crypto suite: " + signatureCryptoSuite);
-        }
-        String appId = aliases.get(0).get(0);
-
+    private String addProofAndHandleResult(JSONObject vcDocument, String errorConstant, SigningContext signingContext)
+            throws CertifyException {
         Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
                 .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
 
         VCResult<?> vcResult = cred.addProof(
                 vcDocument.toString(),
                 "",
-                signatureAlgo,
-                appId,
-                statusListKeyManagerRefId,
-                didUrl,
-                signatureCryptoSuite
+                signingContext.signatureAlgo(),
+                signingContext.keyManagerAppId(),
+                signingContext.keyManagerRefId(),
+                signingContext.didUrl(),
+                signingContext.signatureCryptoSuite()
         );
 
         if (vcResult.getCredential() == null) {
@@ -344,4 +380,53 @@ public class StatusListCredentialService {
         return vcResult.getCredential().toString();
     }
 
+    private SigningContext resolveSigningContext(Issuer issuer) {
+        if (issuer != null && issuer.getKeyManagerAppId() != null) {
+            return new SigningContext(
+                    issuer.getDidUrl(),
+                    issuer.getKeyManagerAppId(),
+                    issuer.getKeyManagerRefId(),
+                    issuer.getSignatureAlgo(),
+                    issuer.getSignatureCryptoSuite());
+        }
+
+        List<List<String>> aliases =
+                (keyAliasMapper != null) ? keyAliasMapper.get(signatureAlgo) : null;
+        if (aliases == null || aliases.isEmpty()
+                || aliases.get(0) == null || aliases.get(0).isEmpty()
+                || aliases.get(0).get(0) == null || aliases.get(0).get(0).isBlank()) {
+            log.error("No key chooser configuration found for the signature crypto suite: {}", signatureCryptoSuite);
+            throw new CertifyException(ErrorConstants.KEY_ALIAS_NOT_CONFIGURED,
+                    "No key chooser configuration found for the signature crypto suite: " + signatureCryptoSuite);
+        }
+        return new SigningContext(
+                didUrl,
+                aliases.get(0).get(0),
+                statusListKeyManagerRefId,
+                signatureAlgo,
+                signatureCryptoSuite);
+    }
+
+    private SigningContext resolveSigningContextFromVcDocument(JSONObject vcDocument) {
+        String issuerDid = vcDocument.optString("issuer", didUrl);
+        return issuerRepository.findByDidUrl(issuerDid)
+                .map(this::resolveSigningContext)
+                .orElseGet(() -> {
+                    List<List<String>> aliases =
+                            (keyAliasMapper != null) ? keyAliasMapper.get(signatureAlgo) : null;
+                    if (aliases == null || aliases.isEmpty()
+                            || aliases.get(0) == null || aliases.get(0).isEmpty()
+                            || aliases.get(0).get(0) == null || aliases.get(0).get(0).isBlank()) {
+                        log.error("No key chooser configuration found for the signature crypto suite: {}", signatureCryptoSuite);
+                        throw new CertifyException(ErrorConstants.KEY_ALIAS_NOT_CONFIGURED,
+                                "No key chooser configuration found for the signature crypto suite: " + signatureCryptoSuite);
+                    }
+                    return new SigningContext(
+                            issuerDid,
+                            aliases.get(0).get(0),
+                            statusListKeyManagerRefId,
+                            signatureAlgo,
+                            signatureCryptoSuite);
+                });
+    }
 }

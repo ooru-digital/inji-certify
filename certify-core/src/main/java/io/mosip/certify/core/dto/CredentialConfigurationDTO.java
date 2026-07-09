@@ -69,4 +69,7 @@ public class CredentialConfigurationDTO {
     private List<Map<String, Object>> qrSettings;
 
     private String qrSignatureAlgo;
+
+    @JsonProperty("issuerId")
+    private String issuerId;
 }

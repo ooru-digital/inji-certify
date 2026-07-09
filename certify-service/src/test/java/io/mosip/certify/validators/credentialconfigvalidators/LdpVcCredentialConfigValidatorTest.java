@@ -104,12 +104,12 @@ class LdpVcCredentialConfigValidatorTest {
         Mockito.when(config.getCredentialFormat()).thenReturn("format");
         Mockito.when(config.getCredentialTypes()).thenReturn(List.of("type1", "type2"));
         Mockito.when(config.getContextURLs()).thenReturn(List.of("context1", "context2"));
-        String credentialTypes = String.join(",", config.getCredentialTypes());
-        String context = String.join(",", config.getContextURLs());
-        Mockito.when(repo.findByCredentialFormatAndCredentialTypeAndContext(
+        Mockito.when(config.getIssuerId()).thenReturn("farmer");
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndCredentialTypeAndContext(
+                "farmer",
                 config.getCredentialFormat(),
-                credentialTypes,
-                context
+                "type1,type2",
+                "context1,context2"
         )).thenReturn(Optional.of(new io.mosip.certify.entity.CredentialConfig()));
 
         boolean result = LdpVcCredentialConfigValidator.isConfigAlreadyPresent(config, repo);
@@ -123,12 +123,12 @@ class LdpVcCredentialConfigValidatorTest {
         Mockito.when(config.getCredentialFormat()).thenReturn("format");
         Mockito.when(config.getCredentialTypes()).thenReturn(List.of("type1", "type2"));
         Mockito.when(config.getContextURLs()).thenReturn(List.of("context1", "context2"));
-        String credentialTypes = String.join(",", config.getCredentialTypes());
-        String context = String.join(",", config.getContextURLs());
-        Mockito.when(repo.findByCredentialFormatAndCredentialTypeAndContext(
+        Mockito.when(config.getIssuerId()).thenReturn(null);
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndCredentialTypeAndContext(
+                "default",
                 config.getCredentialFormat(),
-                credentialTypes,
-                context
+                "type1,type2",
+                "context1,context2"
         )).thenReturn(Optional.empty());
 
         boolean result = LdpVcCredentialConfigValidator.isConfigAlreadyPresent(config, repo);

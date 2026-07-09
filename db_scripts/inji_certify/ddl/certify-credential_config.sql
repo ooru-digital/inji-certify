@@ -14,6 +14,7 @@
 CREATE TABLE credential_config (
     credential_config_key_id VARCHAR(2048) NOT NULL UNIQUE,
     config_id VARCHAR(255) NOT NULL,
+    issuer_id VARCHAR(64) NOT NULL DEFAULT 'default',
     status VARCHAR(255),
     vc_template VARCHAR,
     doctype VARCHAR,
@@ -42,25 +43,29 @@ CREATE TABLE credential_config (
     qr_signature_algo TEXT,
     cr_dtimes TIMESTAMP NOT NULL,
     upd_dtimes TIMESTAMP,
-    CONSTRAINT pk_config_id PRIMARY KEY (config_id)
+    CONSTRAINT pk_config_id PRIMARY KEY (config_id),
+    CONSTRAINT fk_credential_config_issuer FOREIGN KEY (issuer_id) REFERENCES issuer(issuer_id)
 );
 
+CREATE INDEX idx_credential_config_issuer_id ON credential_config(issuer_id);
+
 CREATE UNIQUE INDEX idx_credential_config_type_context_unique
-ON credential_config(credential_type, context, credential_format)
+ON credential_config(issuer_id, credential_type, context, credential_format)
 WHERE credential_type IS NOT NULL AND credential_type <> ''
 AND context IS NOT NULL AND context <> '';
 
 CREATE UNIQUE INDEX idx_credential_config_sd_jwt_vct_unique
-ON credential_config(sd_jwt_vct, credential_format)
+ON credential_config(issuer_id, sd_jwt_vct, credential_format)
 WHERE sd_jwt_vct IS NOT NULL and sd_jwt_vct <> '';
 
 CREATE UNIQUE INDEX idx_credential_config_doctype_unique
-ON credential_config(doctype, credential_format)
+ON credential_config(issuer_id, doctype, credential_format)
 WHERE doctype IS NOT NULL and doctype <> '';
 
 COMMENT ON TABLE credential_config IS 'Credential Config: Contains details of credential configuration.';
 
 COMMENT ON COLUMN credential_config.config_id IS 'Credential Config ID: Unique id assigned to save and identify configuration.';
+COMMENT ON COLUMN credential_config.issuer_id IS 'Issuer ID: Foreign key to the issuer that owns this credential configuration.';
 COMMENT ON COLUMN credential_config.status IS 'Credential Config Status: Status of the credential configuration.';
 COMMENT ON COLUMN credential_config.vc_template IS 'VC Template: Template used for the verifiable credential.';
 COMMENT ON COLUMN credential_config.doctype IS 'Doc Type: Doc Type specifically for Mdoc VC.';
