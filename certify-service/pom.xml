@@ -253,7 +253,6 @@
             <groupId>io.inji.verify</groupId>
             <artifactId>verify-service</artifactId>
             <version>0.18.2-SNAPSHOT</version>
-            <classifier>lib</classifier>
             <exclusions>
                 <exclusion>
                     <groupId>io.inji</groupId>
