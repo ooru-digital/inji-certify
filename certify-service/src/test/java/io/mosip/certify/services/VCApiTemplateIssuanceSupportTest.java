@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -42,6 +43,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
+import org.json.JSONObject;
 
 @RunWith(MockitoJUnitRunner.class)
 public class VCApiTemplateIssuanceSupportTest {
@@ -157,6 +160,38 @@ public class VCApiTemplateIssuanceSupportTest {
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+    }
+
+    @Test
+    public void issueFromTemplate_omitsBlankCredentialSubjectIdWhenNotProvided() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        Map<String, Object> credentialSubject = Map.of("fullName", "Jane Doe");
+        when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId(config.getCredentialConfigKeyId()))
+                .thenReturn(TEMPLATE_NAME);
+        when(vcFormatter.getCredentialStatusPurpose(TEMPLATE_NAME)).thenReturn(Collections.emptyList());
+
+        W3CJsonLD mockW3CJsonLD = mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(mockW3CJsonLD));
+        when(mockW3CJsonLD.createCredential(anyMap(), eq(TEMPLATE_NAME)))
+                .thenReturn("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"],\"credentialSubject\":{\"id\":\"\",\"fullName\":\"Jane Doe\"}}");
+        when(vcFormatter.getProofAlgorithm(TEMPLATE_NAME)).thenReturn("EdDSA");
+        when(vcFormatter.getAppID(TEMPLATE_NAME)).thenReturn("testAppId");
+        when(vcFormatter.getRefID(TEMPLATE_NAME)).thenReturn("testRefId");
+        when(vcFormatter.getDidUrl(TEMPLATE_NAME)).thenReturn("did:example:issuer");
+        when(vcFormatter.getSignatureCryptoSuite(TEMPLATE_NAME)).thenReturn("Ed25519Signature2020");
+
+        ArgumentCaptor<String> unsignedVcCaptor = ArgumentCaptor.forClass(String.class);
+        VCResult mockVcResult = new VCResult();
+        mockVcResult.setCredential(JsonLDObject.fromJson(
+                "{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"],\"credentialSubject\":{\"fullName\":\"Jane Doe\"}}"));
+        when(mockW3CJsonLD.addProof(unsignedVcCaptor.capture(), eq(""), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(mockVcResult);
+
+        support.issueFromTemplate(credentialSubject, config);
+
+        JSONObject unsignedVc = new JSONObject(unsignedVcCaptor.getValue());
+        assertFalse(unsignedVc.getJSONObject("credentialSubject").has("id"));
+        assertEquals("Jane Doe", unsignedVc.getJSONObject("credentialSubject").getString("fullName"));
     }
 
     @Test
