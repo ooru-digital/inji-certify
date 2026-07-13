@@ -98,4 +98,8 @@ public class ErrorConstants {
     public static final String INVALID_ISSUER_SIGNING_CONFIG = "invalid_issuer_signing_config";
     public static final String ISSUER_KEY_GENERATION_FAILED = "issuer_key_generation_failed";
     public static final String CROSS_ISSUER_CONFIG_MISMATCH = "cross_issuer_config_mismatch";
+    public static final String MDOC_DS_KEY_NOT_CONFIGURED = "mdoc_ds_key_not_configured";
+    public static final String MDOC_DS_KEY_INVALID = "mdoc_ds_key_invalid";
+    public static final String MDOC_LOCAL_COSE_SIGN_FAILED = "mdoc_local_cose_sign_failed";
+    public static final String MDOC_DOCTYPE_REQUIRED = "mdoc_doctype_required";
 }

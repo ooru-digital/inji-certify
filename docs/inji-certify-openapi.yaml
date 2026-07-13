@@ -1464,7 +1464,10 @@ paths:
       summary: Issue signed verifiable credential (client credential engine)
       description: |
         Server-to-server issuance using an onboarded credential configuration and existing `vcTemplate`.
-        Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`. v1 supports `ldp_vc` only.
+        Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`.
+        Supports `ldp_vc` (JSON-LD VC) and `mso_mdoc` (base64url CBOR mdoc) based on the configuration's `credentialFormat`.
+        For `mso_mdoc`, Document Signer material must be configured via `mosip.certify.mdoc.issuer-key-cert`
+        (or `mosip.certify.mock.mdoc.issuer-key-cert`).
       operationId: vcApiIssueCredential
       parameters:
         - name: X-API-Key
@@ -3170,7 +3173,17 @@ components:
     VCApiIssueResponse:
       type: object
       properties:
+        format:
+          type: string
+          description: Issued credential format (`ldp_vc` or `mso_mdoc`)
+          enum:
+            - ldp_vc
+            - mso_mdoc
         verifiableCredential:
-          type: object
-          additionalProperties: true
-          description: Signed LDP VC including proof
+          description: |
+            Signed credential. For `ldp_vc` this is a JSON object (LDP VC with proof).
+            For `mso_mdoc` this is a base64url-encoded CBOR IssuerSigned mdoc string.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string

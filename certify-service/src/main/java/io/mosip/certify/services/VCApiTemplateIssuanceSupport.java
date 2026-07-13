@@ -21,8 +21,10 @@ import io.mosip.certify.core.spi.CredentialLedgerService;
 import io.mosip.certify.credential.Credential;
 import io.mosip.certify.credential.CredentialFactory;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocVcApiIssuanceSupport;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
+import io.mosip.certify.utils.VcApiTemplateClaimValidator;
 import io.mosip.certify.vcformatters.VCFormatter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -75,6 +77,9 @@ public class VCApiTemplateIssuanceSupport {
     @Autowired
     private IssuerResolver issuerResolver;
 
+    @Autowired
+    private MdocVcApiIssuanceSupport mdocVcApiIssuanceSupport;
+
     @Value("${mosip.certify.data-provider-plugin.did-url}")
     private String didUrl;
 
@@ -100,11 +105,22 @@ public class VCApiTemplateIssuanceSupport {
     }
 
     public VCApiIssueResult issueFromTemplate(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
-        if (!VCFormats.LDP_VC.equals(config.getCredentialFormat())) {
-            throw new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
-                    "VC API v1 supports only ldp_vc credential format");
-        }
+        VcApiTemplateClaimValidator.validateRequiredClaims(config.getVcTemplate(), credentialSubject);
 
+        String format = config.getCredentialFormat();
+        if (VCFormats.LDP_VC.equals(format)) {
+            return issueLdpVc(credentialSubject, config);
+        }
+        if (VCFormats.MSO_MDOC.equals(format)) {
+            Issuer issuer = issuerResolver.resolve(config.getIssuerId());
+            String credential = mdocVcApiIssuanceSupport.issue(credentialSubject, config, issuer);
+            return new VCApiIssueResult(credential, VCFormats.MSO_MDOC);
+        }
+        throw new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
+                "VC API supports ldp_vc and mso_mdoc credential formats; got: " + format);
+    }
+
+    private VCApiIssueResult issueLdpVc(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
         String templateName = resolveTemplateName(config.getCredentialConfigKeyId());
         Issuer issuer = issuerResolver.resolve(config.getIssuerId());
         JSONObject jsonObject = new JSONObject(credentialSubject);
@@ -148,7 +164,7 @@ public class VCApiTemplateIssuanceSupport {
                     vcFormatter.getDidUrl(templateName),
                     vcFormatter.getSignatureCryptoSuite(templateName));
 
-            return new VCApiIssueResult((JsonLDObject) result.getCredential());
+            return new VCApiIssueResult(result.getCredential(), VCFormats.LDP_VC);
         } catch (JSONException e) {
             log.error("VC API credential generation failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
@@ -234,6 +250,10 @@ public class VCApiTemplateIssuanceSupport {
         log.info("VC API ledger entry stored for credentialType: {}", credentialType);
     }
 
-    public record VCApiIssueResult(JsonLDObject verifiableCredential) {
+    /**
+     * @param credential signed credential — {@link JsonLDObject} for ldp_vc, {@link String} for mso_mdoc
+     * @param format     {@link VCFormats#LDP_VC} or {@link VCFormats#MSO_MDOC}
+     */
+    public record VCApiIssueResult(Object credential, String format) {
     }
 }
