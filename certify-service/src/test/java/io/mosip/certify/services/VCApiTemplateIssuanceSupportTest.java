@@ -1,3 +1,8 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
 package io.mosip.certify.services;
 
 import foundation.identity.jsonld.JsonLDObject;
@@ -13,12 +18,15 @@ import io.mosip.certify.core.spi.CredentialLedgerService;
 import io.mosip.certify.credential.CredentialFactory;
 import io.mosip.certify.credential.W3CJsonLD;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocVcApiIssuanceSupport;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.vcformatters.VCFormatter;
+import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
@@ -34,6 +42,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -43,8 +52,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.mockito.ArgumentCaptor;
-import org.json.JSONObject;
 
 @RunWith(MockitoJUnitRunner.class)
 public class VCApiTemplateIssuanceSupportTest {
@@ -71,6 +78,10 @@ public class VCApiTemplateIssuanceSupportTest {
     private VelocityEnvConfig velocityEnvConfig;
     @Mock
     private IssuerResolver issuerResolver;
+    @Mock
+    private MdocVcApiIssuanceSupport mdocVcApiIssuanceSupport;
+
+    private Issuer issuer;
 
     @Before
     public void setUp() {
@@ -80,7 +91,7 @@ public class VCApiTemplateIssuanceSupportTest {
         ReflectionTestUtils.setField(support, "defaultExpiryDuration", "P730D");
         ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
         when(velocityEnvConfig.getEnvConfigs()).thenReturn(new HashMap<>());
-        Issuer issuer = new Issuer();
+        issuer = new Issuer();
         issuer.setIssuerId("farmer");
         issuer.setDidUrl(DID_URL);
         issuer.setIdentifier("https://test.issuer");
@@ -124,11 +135,28 @@ public class VCApiTemplateIssuanceSupportTest {
         VCApiTemplateIssuanceSupport.VCApiIssueResult result =
                 support.issueFromTemplate(credentialSubject, config);
 
-        assertNotNull(result.verifiableCredential());
-        assertNotNull(result.verifiableCredential().getJsonObject());
+        assertEquals(VCFormats.LDP_VC, result.format());
+        assertTrue(result.credential() instanceof JsonLDObject);
+        assertNotNull(((JsonLDObject) result.credential()).getJsonObject());
         verify(credentialFactory).getCredential(VCFormats.LDP_VC);
         verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString(), any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any());
+    }
+
+    @Test
+    public void issueFromTemplate_success_withMsoMdocFormat() {
+        CredentialConfigurationDTO config = mdocConfig();
+        Map<String, Object> claims = Map.of("family_name", "Doe", "id", "did:jwk:eyJ...");
+        when(mdocVcApiIssuanceSupport.issue(eq(claims), eq(config), eq(issuer)))
+                .thenReturn("base64url-mdoc-credential");
+
+        VCApiTemplateIssuanceSupport.VCApiIssueResult result = support.issueFromTemplate(claims, config);
+
+        assertEquals(VCFormats.MSO_MDOC, result.format());
+        assertEquals("base64url-mdoc-credential", result.credential());
+        verify(mdocVcApiIssuanceSupport).issue(claims, config, issuer);
+        verify(credentialFactory, never()).getCredential(VCFormats.LDP_VC);
     }
 
     @Test
@@ -209,12 +237,37 @@ public class VCApiTemplateIssuanceSupportTest {
                 isNull(), anyMap(), any());
     }
 
+    @Test
+    public void issueFromTemplate_throws_whenTemplateClaimMissing() {
+        CredentialConfigurationDTO config = mdocConfig();
+        String templateJson = "{\"nameSpaces\":{\"org.iso.18013.5.1\":["
+                + "{\"elementValue\":\"${family_name}\"},"
+                + "{\"elementValue\":\"${given_name}\"},"
+                + "{\"elementValue\":\"${birth_date}\"}]}}";
+        config.setVcTemplate(org.apache.commons.codec.binary.Base64.encodeBase64String(
+                templateJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueFromTemplate(Map.of("family_name", "Doe", "given_name", "Jane"), config));
+        assertEquals(ErrorConstants.MISSING_MANDATORY_CLAIM, ex.getErrorCode());
+        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any());
+    }
+
     private CredentialConfigurationDTO ldpConfig() {
         CredentialConfigurationDTO config = new CredentialConfigurationDTO();
         config.setCredentialConfigKeyId("farmer-credential");
         config.setCredentialFormat(VCFormats.LDP_VC);
         config.setCredentialTypes(List.of("VerifiableCredential", "FarmerCredential"));
         config.setContextURLs(List.of("https://www.w3.org/2018/credentials/v1"));
+        config.setIssuerId("farmer");
+        return config;
+    }
+
+    private CredentialConfigurationDTO mdocConfig() {
+        CredentialConfigurationDTO config = new CredentialConfigurationDTO();
+        config.setCredentialConfigKeyId("mdl-credential");
+        config.setCredentialFormat(VCFormats.MSO_MDOC);
+        config.setDocType("org.iso.18013.5.1.mDL");
         config.setIssuerId("farmer");
         return config;
     }

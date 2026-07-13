@@ -8,6 +8,7 @@ package io.mosip.certify.services;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import foundation.identity.jsonld.JsonLDObject;
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
 import io.mosip.certify.core.dto.VCApiIssueResponse;
@@ -44,7 +45,8 @@ public class VCApiIssuanceService {
                     .issueFromTemplate(request.getCredentialSubject(), config);
 
             VCApiIssueResponse response = new VCApiIssueResponse();
-            response.setVerifiableCredential(toCredentialMap(result.verifiableCredential()));
+            response.setFormat(result.format());
+            response.setVerifiableCredential(toResponseCredential(result));
             return response;
         } catch (JsonProcessingException e) {
             log.error("VC API issue request failed during configuration lookup: {}", e.getMessage(), e);
@@ -53,10 +55,26 @@ public class VCApiIssuanceService {
         }
     }
 
+    private Object toResponseCredential(VCApiTemplateIssuanceSupport.VCApiIssueResult result) {
+        if (VCFormats.MSO_MDOC.equals(result.format())) {
+            if (result.credential() instanceof String credential) {
+                return credential;
+            }
+            throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
+                    "Unable to convert mso_mdoc credential to response format");
+        }
+        return toCredentialMap(result.credential());
+    }
+
     @SuppressWarnings("unchecked")
-    private Map<String, Object> toCredentialMap(JsonLDObject jsonLDObject) {
-        Object json = jsonLDObject.getJsonObject();
-        if (json instanceof Map<?, ?> map) {
+    private Map<String, Object> toCredentialMap(Object credential) {
+        if (credential instanceof JsonLDObject jsonLDObject) {
+            Object json = jsonLDObject.getJsonObject();
+            if (json instanceof Map<?, ?> map) {
+                return new LinkedHashMap<>((Map<String, Object>) map);
+            }
+        }
+        if (credential instanceof Map<?, ?> map) {
             return new LinkedHashMap<>((Map<String, Object>) map);
         }
         throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,

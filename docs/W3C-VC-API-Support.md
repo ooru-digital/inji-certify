@@ -81,9 +81,21 @@ If needed for W3C VC API strict interop, accept a `credential` object instead of
 
 - `options.credentialConfigurationId` required; must exist in `credential_config` (status `active`).
 - `credentialSubject` required (non-empty).
-- Config `credentialFormat` = `ldp_vc` for v1.
+- Config `credentialFormat` = `ldp_vc` or `mso_mdoc`.
 - Claim keys must be compatible with onboarded `vcTemplate` placeholders.
-- Issuer / `@context` / `type` come from **template + config**, not from Client.
+- Issuer / `@context` / `type` (LDP) or `docType` (mdoc) come from **template + config**, not from Client.
+- For `mso_mdoc`, Document Signer must be configured (`mosip.certify.mdoc.issuer-key-cert` or mock fallback). See [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md).
+
+### Response — format field
+
+```json
+{
+  "format": "ldp_vc",
+  "verifiableCredential": { }
+}
+```
+
+For mdoc, `verifiableCredential` is a **string** (base64url CBOR).
 
 ---
 
@@ -107,12 +119,15 @@ flowchart TB
     end
 
     Client -->|"API key + credentialSubject"| VCAPI --> VAS --> Support
-    Support --> VF
-    Support --> ST
-    Support --> CF
+    Support -->|ldp_vc| VF
+    Support -->|ldp_vc| ST
+    Support -->|ldp_vc| CF
     CF --> KM
     Support --> LD
+    Support -->|mso_mdoc| MdocPath[MdocVcApiIssuanceSupport + local DS COSE]
 ```
+
+See also [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md) for native `mso_mdoc` issuance on this API.
 
 ### 3.2 Issue credential — sequence
 

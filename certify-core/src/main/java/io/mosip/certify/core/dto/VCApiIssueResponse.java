@@ -8,14 +8,21 @@ package io.mosip.certify.core.dto;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
-import java.util.Map;
-
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class VCApiIssueResponse {
 
     /**
-     * Signed LDP verifiable credential including proof.
+     * Signed credential:
+     * <ul>
+     *   <li>{@code ldp_vc} — JSON object (LDP verifiable credential with proof)</li>
+     *   <li>{@code mso_mdoc} — base64url-encoded CBOR IssuerSigned mdoc string</li>
+     * </ul>
      */
-    private Map<String, Object> verifiableCredential;
+    private Object verifiableCredential;
+
+    /**
+     * Credential format that was issued ({@code ldp_vc} or {@code mso_mdoc}).
+     */
+    private String format;
 }

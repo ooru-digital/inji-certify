@@ -59,13 +59,36 @@ public class VCApiControllerTest {
         Map<String, Object> vc = new LinkedHashMap<>();
         vc.put("type", java.util.List.of("VerifiableCredential"));
         response.setVerifiableCredential(vc);
+        response.setFormat("ldp_vc");
         Mockito.when(vcApiIssuanceService.issue(Mockito.any())).thenReturn(response);
 
         mockMvc.perform(post("/vc-api/credentials/issue")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.format").value("ldp_vc"))
                 .andExpect(jsonPath("$.verifiableCredential.type").isArray());
+    }
+
+    @Test
+    public void issueCredential_returnsMdocStringCredential() throws Exception {
+        VCApiIssueRequest request = new VCApiIssueRequest();
+        request.setCredentialSubject(Map.of("family_name", "Doe", "id", "did:jwk:eyJ..."));
+        VCApiIssueOptions options = new VCApiIssueOptions();
+        options.setCredentialConfigurationId("mdl-credential");
+        request.setOptions(options);
+
+        VCApiIssueResponse response = new VCApiIssueResponse();
+        response.setFormat("mso_mdoc");
+        response.setVerifiableCredential("base64url-encoded-mdoc");
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any())).thenReturn(response);
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.format").value("mso_mdoc"))
+                .andExpect(jsonPath("$.verifiableCredential").value("base64url-encoded-mdoc"));
     }
 
     @Test
@@ -137,7 +160,7 @@ public class VCApiControllerTest {
 
         Mockito.when(vcApiIssuanceService.issue(Mockito.any()))
                 .thenThrow(new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
-                        "VC API v1 supports only ldp_vc credential format"));
+                        "VC API supports ldp_vc and mso_mdoc credential formats"));
 
         mockMvc.perform(post("/vc-api/credentials/issue")
                         .contentType(MediaType.APPLICATION_JSON)

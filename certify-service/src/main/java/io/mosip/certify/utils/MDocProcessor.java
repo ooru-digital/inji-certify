@@ -17,6 +17,8 @@ import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.mdoc.MdocDsKeyMaterial;
+import io.mosip.certify.mdoc.MdocLocalDsCoseSigner;
 import io.mosip.kernel.signature.dto.CoseSignRequestDto;
 import io.mosip.kernel.signature.service.CoseSignatureService;
 import lombok.extern.slf4j.Slf4j;
@@ -451,7 +453,7 @@ public class MDocProcessor {
     }
 
     /**
-     * Signs the MSO using COSE_Sign1 structure via ProofGenerator
+     * Signs the MSO using COSE_Sign1 structure via KeyManager CoseSignatureService.
      */
     public byte[] signMSO(Map<String, Object> mso, String appID, String refID, String signAlgorithm) throws Exception {
         try {
@@ -476,6 +478,15 @@ public class MDocProcessor {
             log.error("Error during COSE signing: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.VC_SIGNING_ERROR, "COSE signing failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Signs the MSO using a local Document Signer key/cert (VC API mdoc path; no KeyManager).
+     */
+    public byte[] signMSOWithLocalDs(Map<String, Object> mso, MdocDsKeyMaterial keyMaterial,
+                                     MdocLocalDsCoseSigner localDsCoseSigner) throws Exception {
+        byte[] msoCbor = encodeToCBOR(mso);
+        return localDsCoseSigner.sign(msoCbor, keyMaterial);
     }
 
     /**

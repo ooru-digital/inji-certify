@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 @RestController
 @RequestMapping("/vc-api")
-@Tag(name = "W3C VC API", description = "Endpoints for W3C Verifiable Credentials API issuance")
+@Tag(name = "W3C VC API", description = "Endpoints for W3C Verifiable Credentials API issuance (ldp_vc and mso_mdoc)")
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
 public class VCApiController {
 
