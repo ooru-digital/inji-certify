@@ -29,6 +29,18 @@ public class IssuerOnboardingResponse {
     @JsonProperty("keyManagerRefId")
     private String keyManagerRefId;
 
+    @JsonProperty("mdocIacaAppId")
+    private String mdocIacaAppId;
+
+    @JsonProperty("mdocIacaRefId")
+    private String mdocIacaRefId;
+
+    @JsonProperty("mdocDsAppId")
+    private String mdocDsAppId;
+
+    @JsonProperty("mdocDsRefId")
+    private String mdocDsRefId;
+
     @JsonProperty("wellKnownEndpoints")
     private Map<String, String> wellKnownEndpoints;
 }

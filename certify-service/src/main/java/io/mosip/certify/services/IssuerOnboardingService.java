@@ -6,6 +6,8 @@ import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.dto.*;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocPkiRefs;
+import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.DidWebUtil;
 import io.mosip.certify.utils.IssuerMapper;
@@ -41,6 +43,9 @@ public class IssuerOnboardingService {
 
     @Autowired
     private IssuerMapper issuerMapper;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Value("${mosip.certify.domain.url}")
     private String domainUrl;
@@ -83,9 +88,13 @@ public class IssuerOnboardingService {
         List<String> keyRefs = resolveKeyRefs(signingConfig);
         String keyManagerRefId = keyRefs.getLast();
 
+        MdocPkiRefs mdocPkiRefs;
         try {
             ensureKeyPolicy(keyManagerAppId);
             generateIssuerKeys(keyManagerAppId, signingConfig.getSignatureAlgo(), keyManagerRefId);
+            mdocPkiRefs = mdocPkiService.provision(request.getIssuerId());
+        } catch (CertifyException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to generate keys for issuer {}", request.getIssuerId(), e);
             throw new CertifyException(ErrorConstants.ISSUER_KEY_GENERATION_FAILED,
@@ -107,6 +116,10 @@ public class IssuerOnboardingService {
         issuer.setKeyManagerRefId(keyManagerRefId);
         issuer.setSignatureCryptoSuite(signingConfig.getSignatureCryptoSuite());
         issuer.setSignatureAlgo(signingConfig.getSignatureAlgo());
+        issuer.setMdocIacaAppId(mdocPkiRefs.iacaAppId());
+        issuer.setMdocIacaRefId(mdocPkiRefs.iacaRefId());
+        issuer.setMdocDsAppId(mdocPkiRefs.dsAppId());
+        issuer.setMdocDsRefId(mdocPkiRefs.dsRefId());
         issuer.setStatus(Constants.ACTIVE);
         issuer.setCreatedTimes(LocalDateTime.now());
 
@@ -245,6 +258,10 @@ public class IssuerOnboardingService {
         response.setDidUrl(issuer.getDidUrl());
         response.setKeyManagerAppId(issuer.getKeyManagerAppId());
         response.setKeyManagerRefId(issuer.getKeyManagerRefId());
+        response.setMdocIacaAppId(issuer.getMdocIacaAppId());
+        response.setMdocIacaRefId(issuer.getMdocIacaRefId());
+        response.setMdocDsAppId(issuer.getMdocDsAppId());
+        response.setMdocDsRefId(issuer.getMdocDsRefId());
 
         String base = domainUrl + servletPath;
         Map<String, String> wellKnown = new LinkedHashMap<>();

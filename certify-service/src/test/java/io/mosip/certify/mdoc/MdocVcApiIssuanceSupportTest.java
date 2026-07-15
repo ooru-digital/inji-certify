@@ -57,6 +57,8 @@ public class MdocVcApiIssuanceSupportTest {
     @Mock
     private MDocProcessor mDocProcessor;
     @Mock
+    private MdocPkiService mdocPkiService;
+    @Mock
     private MdocIssuerKeyCertLoader mdocIssuerKeyCertLoader;
     @Mock
     private MdocLocalDsCoseSigner mdocLocalDsCoseSigner;
@@ -77,6 +79,7 @@ public class MdocVcApiIssuanceSupportTest {
         ReflectionTestUtils.setField(support, "defaultExpiryDuration", "P730D");
         ReflectionTestUtils.setField(support, "idPrefix", "");
         ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
+        ReflectionTestUtils.setField(support, "allowPropertyDs", false);
         ReflectionTestUtils.setField(support, "objectMapper", realObjectMapper);
         when(velocityEnvConfig.getEnvConfigs()).thenReturn(new HashMap<>());
         issuer = new Issuer();
@@ -107,7 +110,38 @@ public class MdocVcApiIssuanceSupportTest {
     }
 
     @Test
-    public void issue_success_returnsBase64UrlCredential() throws Exception {
+    public void issue_withoutIssuerDs_failsClosed_whenPropertyDsDisabled() {
+        CredentialConfigurationDTO config = mdocConfig();
+        when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId("mdl"))
+                .thenReturn(TEMPLATE_NAME);
+        when(credentialFactory.getCredential(VCFormats.MSO_MDOC)).thenReturn(Optional.of(mDocCredential));
+
+        Map<String, Object> element = new HashMap<>();
+        element.put("digestID", 1);
+        element.put("elementIdentifier", "family_name");
+        element.put("elementValue", "Doe");
+        Map<String, Object> mDocJson = new HashMap<>();
+        mDocJson.put("_docType", "org.iso.18013.5.1.mDL");
+        mDocJson.put("nameSpaces", Map.of("org.iso.18013.5.1", List.of(element)));
+        try {
+            when(mDocCredential.createCredential(anyMap(), eq(TEMPLATE_NAME)))
+                    .thenReturn(realObjectMapper.writeValueAsString(mDocJson));
+            Map<String, Object> mso = new HashMap<>();
+            mso.put("docType", "org.iso.18013.5.1.mDL");
+            when(mDocProcessor.createMobileSecurityObject(any(), any())).thenReturn(mso);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issue(Map.of("family_name", "Doe"), config, issuer));
+        assertEquals(ErrorConstants.MDOC_ISSUER_DS_NOT_CONFIGURED, ex.getErrorCode());
+        verify(mdocIssuerKeyCertLoader, org.mockito.Mockito.never()).load();
+    }
+
+    @Test
+    public void issue_success_withPropertyDs_whenAllowed() throws Exception {
+        ReflectionTestUtils.setField(support, "allowPropertyDs", true);
         CredentialConfigurationDTO config = mdocConfig();
         when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId("mdl"))
                 .thenReturn(TEMPLATE_NAME);
@@ -140,10 +174,46 @@ public class MdocVcApiIssuanceSupportTest {
 
         assertNotNull(result);
         assertFalse(result.isBlank());
-        // base64url alphabet
         assertEquals(true, result.matches("^[A-Za-z0-9_-]+$"));
         verify(mdocIssuerKeyCertLoader).load();
         verify(mDocProcessor).signMSOWithLocalDs(any(), eq(keyMaterial), eq(mdocLocalDsCoseSigner));
+    }
+
+    @Test
+    public void issue_withIssuerMdocDs_signsViaKeyManager() throws Exception {
+        issuer.setMdocDsAppId("CERTIFY_DS_MDL_ISSUER");
+        issuer.setMdocDsRefId("EC_SECP256R1_SIGN");
+        issuer.setMdocIacaAppId("CERTIFY_IACA_MDL_ISSUER");
+        issuer.setMdocIacaRefId("EC_SECP256R1_SIGN");
+
+        CredentialConfigurationDTO config = mdocConfig();
+        when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId("mdl"))
+                .thenReturn(TEMPLATE_NAME);
+        when(credentialFactory.getCredential(VCFormats.MSO_MDOC)).thenReturn(Optional.of(mDocCredential));
+
+        Map<String, Object> element = new HashMap<>();
+        element.put("digestID", 1);
+        element.put("elementIdentifier", "family_name");
+        element.put("elementValue", "Doe");
+        Map<String, Object> mDocJson = new HashMap<>();
+        mDocJson.put("_docType", "org.iso.18013.5.1.mDL");
+        mDocJson.put("nameSpaces", Map.of("org.iso.18013.5.1", List.of(element)));
+        when(mDocCredential.createCredential(anyMap(), eq(TEMPLATE_NAME)))
+                .thenReturn(realObjectMapper.writeValueAsString(mDocJson));
+
+        Map<String, Object> mso = new HashMap<>();
+        mso.put("docType", "org.iso.18013.5.1.mDL");
+        when(mDocProcessor.createMobileSecurityObject(any(), any())).thenReturn(mso);
+        when(mDocProcessor.signMSO(eq(mso), eq("CERTIFY_DS_MDL_ISSUER"), eq("EC_SECP256R1_SIGN"), eq("ES256")))
+                .thenReturn(createMockCoseSign1());
+
+        String result = support.issue(Map.of("family_name", "Doe"), config, issuer);
+
+        assertNotNull(result);
+        assertFalse(result.isBlank());
+        verify(mdocPkiService).ensureDocumentSignerCurrent(issuer);
+        verify(mDocProcessor).signMSO(eq(mso), eq("CERTIFY_DS_MDL_ISSUER"), eq("EC_SECP256R1_SIGN"), eq("ES256"));
+        verify(mdocIssuerKeyCertLoader, org.mockito.Mockito.never()).load();
     }
 
     private CredentialConfigurationDTO mdocConfig() {

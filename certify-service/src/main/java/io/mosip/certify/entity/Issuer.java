@@ -54,6 +54,18 @@ public class Issuer {
     @Column(name = "signature_algo", length = 32)
     private String signatureAlgo;
 
+    @Column(name = "mdoc_iaca_app_id", length = 36)
+    private String mdocIacaAppId;
+
+    @Column(name = "mdoc_iaca_ref_id", length = 128)
+    private String mdocIacaRefId;
+
+    @Column(name = "mdoc_ds_app_id", length = 36)
+    private String mdocDsAppId;
+
+    @Column(name = "mdoc_ds_ref_id", length = 128)
+    private String mdocDsRefId;
+
     @NotNull
     @Column(name = "status", nullable = false, length = 16)
     private String status;

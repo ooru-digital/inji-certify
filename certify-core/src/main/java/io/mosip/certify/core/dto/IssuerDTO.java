@@ -39,4 +39,16 @@ public class IssuerDTO {
 
     @JsonProperty("signatureAlgo")
     private String signatureAlgo;
+
+    @JsonProperty("mdocIacaAppId")
+    private String mdocIacaAppId;
+
+    @JsonProperty("mdocIacaRefId")
+    private String mdocIacaRefId;
+
+    @JsonProperty("mdocDsAppId")
+    private String mdocDsAppId;
+
+    @JsonProperty("mdocDsRefId")
+    private String mdocDsRefId;
 }

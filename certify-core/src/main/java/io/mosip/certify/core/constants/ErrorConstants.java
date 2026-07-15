@@ -102,4 +102,10 @@ public class ErrorConstants {
     public static final String MDOC_DS_KEY_INVALID = "mdoc_ds_key_invalid";
     public static final String MDOC_LOCAL_COSE_SIGN_FAILED = "mdoc_local_cose_sign_failed";
     public static final String MDOC_DOCTYPE_REQUIRED = "mdoc_doctype_required";
+    public static final String MDOC_PKI_PROVISIONING_FAILED = "mdoc_pki_provisioning_failed";
+    public static final String MDOC_DS_ROTATION_FAILED = "mdoc_ds_rotation_failed";
+    /** Issuer lacks KeyManager Document Signer refs and property-DS fallback is disabled. */
+    public static final String MDOC_ISSUER_DS_NOT_CONFIGURED = "mdoc_issuer_ds_not_configured";
+    /** Issuer lacks KeyManager IACA refs needed to export the trust anchor. */
+    public static final String MDOC_IACA_NOT_CONFIGURED = "mdoc_iaca_not_configured";
 }

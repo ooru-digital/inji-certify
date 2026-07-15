@@ -3,9 +3,12 @@ package io.mosip.certify.config;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocPkiRefs;
+import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.IssuerMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
@@ -26,6 +29,9 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
 
     @Autowired
     private IssuerMapper issuerMapper;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Value("${mosip.certify.domain.url}")
     private String domainUrl;
@@ -67,6 +73,7 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
         issuer.setSignatureAlgo("EdDSA");
         issuer.setStatus(Constants.ACTIVE);
         issuer.setCreatedTimes(LocalDateTime.now());
+        ensureDefaultMdocPki(issuer);
         issuerRepository.save(issuer);
         log.info("Default issuer seeded successfully");
     }
@@ -81,8 +88,25 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
         if (issuer.getAuthorizationServers() == null || issuer.getAuthorizationServers().isEmpty()) {
             issuer.setAuthorizationServers(resolveAuthServers());
         }
+        ensureDefaultMdocPki(issuer);
         issuer.setUpdatedTimes(LocalDateTime.now());
         issuerRepository.save(issuer);
+    }
+
+    private void ensureDefaultMdocPki(Issuer issuer) {
+        if (StringUtils.isNotBlank(issuer.getMdocIacaAppId()) && StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
+            return;
+        }
+        try {
+            MdocPkiRefs refs = mdocPkiService.provision(IssuerConstants.DEFAULT_ISSUER_ID);
+            issuer.setMdocIacaAppId(refs.iacaAppId());
+            issuer.setMdocIacaRefId(refs.iacaRefId());
+            issuer.setMdocDsAppId(refs.dsAppId());
+            issuer.setMdocDsRefId(refs.dsRefId());
+            log.info("Provisioned mdoc IACA/DS for default issuer");
+        } catch (Exception e) {
+            log.error("Failed to provision mdoc IACA/DS for default issuer; continuing without mdoc KeyManager refs", e);
+        }
     }
 
     private List<String> resolveAuthServers() {

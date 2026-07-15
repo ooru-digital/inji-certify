@@ -1466,8 +1466,10 @@ paths:
         Server-to-server issuance using an onboarded credential configuration and existing `vcTemplate`.
         Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`.
         Supports `ldp_vc` (JSON-LD VC) and `mso_mdoc` (base64url CBOR mdoc) based on the configuration's `credentialFormat`.
-        For `mso_mdoc`, Document Signer material must be configured via `mosip.certify.mdoc.issuer-key-cert`
-        (or `mosip.certify.mock.mdoc.issuer-key-cert`).
+        For `mso_mdoc`, production requires the issuer KeyManager Document Signer (`mdocDsAppId`).
+        Property-based DS is non-prod only (`mosip.certify.mdoc.allow-property-ds=true`).
+        Verifiers must install the issuer IACA as a trust anchor (ISO 18013-5); export via
+        `GET /issuers/{issuerId}/mdoc/iaca-certificate`. See docs/mDoc-IACA-Verifier-Trust.md.
       operationId: vcApiIssueCredential
       parameters:
         - name: X-API-Key

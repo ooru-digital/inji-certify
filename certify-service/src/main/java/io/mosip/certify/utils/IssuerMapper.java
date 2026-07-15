@@ -28,6 +28,10 @@ public class IssuerMapper {
         dto.setKeyManagerRefId(issuer.getKeyManagerRefId());
         dto.setSignatureCryptoSuite(issuer.getSignatureCryptoSuite());
         dto.setSignatureAlgo(issuer.getSignatureAlgo());
+        dto.setMdocIacaAppId(issuer.getMdocIacaAppId());
+        dto.setMdocIacaRefId(issuer.getMdocIacaRefId());
+        dto.setMdocDsAppId(issuer.getMdocDsAppId());
+        dto.setMdocDsRefId(issuer.getMdocDsRefId());
         return dto;
     }
 

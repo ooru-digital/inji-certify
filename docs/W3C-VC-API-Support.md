@@ -84,7 +84,7 @@ If needed for W3C VC API strict interop, accept a `credential` object instead of
 - Config `credentialFormat` = `ldp_vc` or `mso_mdoc`.
 - Claim keys must be compatible with onboarded `vcTemplate` placeholders.
 - Issuer / `@context` / `type` (LDP) or `docType` (mdoc) come from **template + config**, not from Client.
-- For `mso_mdoc`, Document Signer must be configured (`mosip.certify.mdoc.issuer-key-cert` or mock fallback). See [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md).
+- For `mso_mdoc`, production requires issuer KeyManager Document Signer (`mdocDsAppId`). Property DS is non-prod only (`mosip.certify.mdoc.allow-property-ds=true`). See [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md) and [mDoc-IACA-Verifier-Trust.md](./mDoc-IACA-Verifier-Trust.md).
 
 ### Response — format field
 
@@ -124,7 +124,7 @@ flowchart TB
     Support -->|ldp_vc| CF
     CF --> KM
     Support --> LD
-    Support -->|mso_mdoc| MdocPath[MdocVcApiIssuanceSupport + local DS COSE]
+    Support -->|mso_mdoc| MdocPath[MdocVcApiIssuanceSupport + KeyManager DS]
 ```
 
 See also [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md) for native `mso_mdoc` issuance on this API.

@@ -454,6 +454,7 @@ public class MDocProcessor {
 
     /**
      * Signs the MSO using COSE_Sign1 structure via KeyManager CoseSignatureService.
+     * Embeds the Document Signer certificate in the unprotected x5chain header.
      */
     public byte[] signMSO(Map<String, Object> mso, String appID, String refID, String signAlgorithm) throws Exception {
         try {
@@ -468,7 +469,7 @@ public class MDocProcessor {
             signRequest.setReferenceId(refID);
             signRequest.setAlgorithm(signAlgorithm);
 
-            // Set unprotected header in request
+            // Document Signer certificate in unprotected x5chain (label 33)
             signRequest.setUnprotectedHeader(Map.of("includeCertificate", true));
 
             String hexSignedData = coseSignatureService.coseSign1(signRequest).getSignedData();
