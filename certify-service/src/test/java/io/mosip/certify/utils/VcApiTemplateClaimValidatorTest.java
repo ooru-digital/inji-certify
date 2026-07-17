@@ -91,4 +91,44 @@ public class VcApiTemplateClaimValidatorTest {
         VcApiTemplateClaimValidator.validateRequiredClaims("", Map.of());
         VcApiTemplateClaimValidator.validateRequiredClaims(null, Map.of());
     }
+
+    @Test
+    public void extractRequiredClaimKeys_ignoresCertifyInjectedValidityDates() {
+        String templateJson = """
+                {
+                  "issuer": "${_issuer}",
+                  "validFrom": "${validFrom}",
+                  "validUntil": "${validUntil}",
+                  "issuanceDate": "${validFrom}",
+                  "expirationDate": "${validUntil}",
+                  "credentialSubject": {
+                    "id": "${_holderId}",
+                    "fullName": "${fullName}"
+                  }
+                }
+                """;
+        String b64 = Base64.encodeBase64String(templateJson.getBytes(StandardCharsets.UTF_8));
+
+        Set<String> keys = VcApiTemplateClaimValidator.extractRequiredClaimKeys(b64);
+
+        assertEquals(Set.of("fullName"), keys);
+        assertFalse(keys.contains("validFrom"));
+        assertFalse(keys.contains("validUntil"));
+    }
+
+    @Test
+    public void validateRequiredClaims_success_forVcdm20TemplateWithoutValidityClaims() {
+        String templateJson = """
+                {
+                  "validFrom": "${validFrom}",
+                  "validUntil": "${validUntil}",
+                  "credentialSubject": {
+                    "fullName": "${fullName}"
+                  }
+                }
+                """;
+        String b64 = Base64.encodeBase64String(templateJson.getBytes(StandardCharsets.UTF_8));
+
+        VcApiTemplateClaimValidator.validateRequiredClaims(b64, Map.of("fullName", "Jane Doe"));
+    }
 }
