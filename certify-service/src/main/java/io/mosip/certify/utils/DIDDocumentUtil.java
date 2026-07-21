@@ -31,6 +31,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import io.ipfs.multibase.Multibase;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.SignatureAlg;
+import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.exception.CertifyException;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.util.BigIntegers;
@@ -269,9 +270,14 @@ public class DIDDocumentUtil {
             allConfigs = credentialConfigRepository.findAll();
         }
 
-        // Create a map with signatureCryptoSuite as the key and appId, refId as values
+        // Create a map keyed by appId-refId with [appId, refId, signatureAlgo].
+        // mso_mdoc is excluded: it uses issuer DS/IACA PKI (ISO 18013-5), not DID verification methods.
         Map<String, List<String>> signatureCryptoSuiteMap = new HashMap<>();
         for (CredentialConfig config : allConfigs) {
+            if (VCFormats.MSO_MDOC.equals(config.getCredentialFormat())) {
+                continue;
+            }
+
             String appId = config.getKeyManagerAppId();
             String refId = config.getKeyManagerRefId();
 
