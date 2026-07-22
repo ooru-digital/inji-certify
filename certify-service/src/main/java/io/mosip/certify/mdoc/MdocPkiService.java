@@ -10,6 +10,7 @@ import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.utils.KeyManagerAppIdUtil;
 import io.mosip.kernel.core.keymanager.model.CertificateEntry;
 import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateRequestDto;
 import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateResponseDto;
@@ -33,7 +34,6 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -43,7 +43,6 @@ import java.util.Optional;
 @Service
 public class MdocPkiService {
 
-    private static final int MAX_KEY_MANAGER_APP_ID_LENGTH = 36;
     private static final String CREATED_BY = "certify-mdoc-pki";
 
     @Autowired
@@ -331,13 +330,6 @@ public class MdocPkiService {
     }
 
     private String buildAppId(String prefix, String issuerId) {
-        String normalizedId = issuerId.toUpperCase(Locale.ROOT).replace("-", "_");
-        String appId = prefix + normalizedId;
-        if (appId.length() > MAX_KEY_MANAGER_APP_ID_LENGTH) {
-            throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
-                    "issuerId is too long for mdoc key manager app id (max "
-                            + MAX_KEY_MANAGER_APP_ID_LENGTH + " chars): " + appId);
-        }
-        return appId;
+        return KeyManagerAppIdUtil.buildAppId(prefix, issuerId);
     }
 }
