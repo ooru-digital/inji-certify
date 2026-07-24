@@ -3,7 +3,6 @@ package io.mosip.certify.utils;
 import java.io.ByteArrayInputStream;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
-import java.security.Key;
 import java.security.PublicKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
@@ -18,19 +17,17 @@ import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import io.mosip.certify.core.dto.CertificateResponseDTO;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.entity.attributes.MetaDataDisplay;
 import io.mosip.certify.repository.CredentialConfigRepository;
-import io.mosip.certify.services.CertifyIssuanceServiceImpl;
 import io.mosip.kernel.keymanagerservice.dto.AllCertificatesDataResponseDto;
 import io.mosip.kernel.keymanagerservice.dto.CertificateDataResponseDto;
 import io.mosip.kernel.keymanagerservice.service.KeymanagerService;
 import org.bouncycastle.jcajce.provider.asymmetric.edec.BCEdDSAPublicKey;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
-import com.nimbusds.jose.jwk.RSAKey;
-
 import io.ipfs.multibase.Multibase;
 import io.mosip.certify.core.constants.ErrorConstants;
-import io.mosip.certify.core.constants.SignatureAlg;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.exception.CertifyException;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +36,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Component
@@ -55,29 +53,43 @@ public class DIDDocumentUtil {
     private static final String MULTICODEC_PREFIX = "ed01";
 
     public Map<String, Object> generateDIDDocument(String didUrl) {
-        return generateDIDDocument(didUrl, null);
+        return generateDIDDocument(didUrl, null, null);
     }
 
     public Map<String, Object> generateDIDDocument(String didUrl, String issuerId) {
+        return generateDIDDocument(didUrl, issuerId, null);
+    }
+
+    /**
+     * Builds a DID document for an onboarded issuer, seeding verification methods from
+     * the issuer signing keys and merging any unique keys from credential configs.
+     */
+    public Map<String, Object> generateDIDDocument(Issuer issuer) {
+        return generateDIDDocument(issuer.getDidUrl(), issuer.getIssuerId(), issuer);
+    }
+
+    public Map<String, Object> generateDIDDocument(String didUrl, String issuerId, Issuer issuer) {
         HashMap<String, Object> didDocument = new HashMap<>();
         didDocument.put("@context", Collections.singletonList("https://www.w3.org/ns/did/v1"));
-        didDocument.put("alsoKnownAs", new ArrayList<>());
+        didDocument.put("alsoKnownAs", resolveAlsoKnownAs(issuer));
         didDocument.put("service", new ArrayList<>());
         didDocument.put("id", didUrl);
 
-        Map<String, List<String>> credentialConfigMap = getSignatureCryptoSuiteMap(issuerId);
+        Map<String, List<String>> keySourceMap = new LinkedHashMap<>();
+        seedIssuerSigningKeys(keySourceMap, issuer);
+        keySourceMap.putAll(getSignatureCryptoSuiteMap(issuerId));
 
-        // Use a Set to track unique verification methods by their "id"
         Set<String> uniqueIds = new HashSet<>();
-        List<Map<String, Object>> verificationMethods = credentialConfigMap.entrySet().stream()
+        List<Map<String, Object>> verificationMethods = keySourceMap.entrySet().stream()
                 .flatMap(entry -> {
                     List<String> keyParams = entry.getValue();
                     String appId = keyParams.get(0);
                     String refId = keyParams.get(1);
-                    AllCertificatesDataResponseDto kidResponse = keymanagerService.getAllCertificates(appId, refId != null ? Optional.of(refId) : Optional.empty());
+                    AllCertificatesDataResponseDto kidResponse = keymanagerService.getAllCertificates(
+                            appId, refId != null ? Optional.of(refId) : Optional.empty());
 
                     if (kidResponse == null || kidResponse.getAllCertificates() == null) {
-                        log.error("No certificates found for appId: {} and refId: {}", keyParams.get(0), keyParams.get(1));
+                        log.error("No certificates found for appId: {} and refId: {}", appId, refId);
                         throw new CertifyException("No certificates found");
                     }
 
@@ -85,16 +97,16 @@ public class DIDDocumentUtil {
                             .map(certificateData -> {
                                 String certificateString = certificateData.getCertificateData();
                                 String kid = certificateData.getKeyId();
-                                Map<String, Object> verificationMethod = generateVerificationMethod(keyParams.get(2), certificateString, didUrl, kid);
+                                Map<String, Object> verificationMethod = generateVerificationMethod(
+                                        keyParams.get(2), certificateString, didUrl, kid);
 
-                                // Add only if the "id" is unique
                                 String verificationId = (String) verificationMethod.get("id");
                                 if (uniqueIds.add(verificationId)) {
                                     return verificationMethod;
                                 }
-                                return null; // Skip duplicates
+                                return null;
                             })
-                            .filter(Objects::nonNull); // Remove null entries
+                            .filter(Objects::nonNull);
                 })
                 .collect(Collectors.toList());
 
@@ -108,6 +120,51 @@ public class DIDDocumentUtil {
                 ? Collections.singletonList(didUrl) : verificationMethodIds);
 
         return didDocument;
+    }
+
+    private void seedIssuerSigningKeys(Map<String, List<String>> keySourceMap, Issuer issuer) {
+        if (issuer == null || !StringUtils.hasText(issuer.getKeyManagerAppId())) {
+            return;
+        }
+        String signatureAlgo = resolveSignatureAlgo(issuer.getSignatureAlgo(), issuer.getSignatureCryptoSuite());
+        if (signatureAlgo == null) {
+            log.warn("Skipping issuer signing keys for DID document; signature algorithm unresolved for issuer {}",
+                    issuer.getIssuerId());
+            return;
+        }
+        String appId = issuer.getKeyManagerAppId();
+        String refId = issuer.getKeyManagerRefId();
+        String uniqueKey = appId + "-" + (refId != null ? refId : "");
+        List<String> keyParams = new ArrayList<>();
+        keyParams.add(appId);
+        keyParams.add(refId);
+        keyParams.add(signatureAlgo);
+        keySourceMap.put(uniqueKey, keyParams);
+    }
+
+    private String resolveSignatureAlgo(String signatureAlgo, String signatureCryptoSuite) {
+        if (StringUtils.hasText(signatureAlgo)) {
+            return signatureAlgo;
+        }
+        if (!StringUtils.hasText(signatureCryptoSuite)
+                || credentialSigningAlgValuesSupportedMap == null
+                || !credentialSigningAlgValuesSupportedMap.containsKey(signatureCryptoSuite)) {
+            return null;
+        }
+        List<String> algos = credentialSigningAlgValuesSupportedMap.get(signatureCryptoSuite);
+        return algos == null || algos.isEmpty() ? null : algos.getFirst();
+    }
+
+    private List<String> resolveAlsoKnownAs(Issuer issuer) {
+        if (issuer == null || issuer.getDisplay() == null) {
+            return new ArrayList<>();
+        }
+        return issuer.getDisplay().stream()
+                .map(MetaDataDisplay::getName)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .map(name -> new ArrayList<>(List.of(name)))
+                .orElseGet(ArrayList::new);
     }
 
     private static Map<String, Object> generateVerificationMethod(String signatureAlgo, String certificateString, String didUrl, String kid) {
@@ -272,7 +329,7 @@ public class DIDDocumentUtil {
 
         // Create a map keyed by appId-refId with [appId, refId, signatureAlgo].
         // mso_mdoc is excluded: it uses issuer DS/IACA PKI (ISO 18013-5), not DID verification methods.
-        Map<String, List<String>> signatureCryptoSuiteMap = new HashMap<>();
+        Map<String, List<String>> signatureCryptoSuiteMap = new LinkedHashMap<>();
         for (CredentialConfig config : allConfigs) {
             if (VCFormats.MSO_MDOC.equals(config.getCredentialFormat())) {
                 continue;

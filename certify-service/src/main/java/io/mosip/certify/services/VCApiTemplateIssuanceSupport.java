@@ -25,6 +25,7 @@ import io.mosip.certify.mdoc.MdocVcApiIssuanceSupport;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.utils.VcApiTemplateClaimValidator;
+import io.mosip.certify.utils.VcApiValidityResolver;
 import io.mosip.certify.vcformatters.VCFormatter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -35,12 +36,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,9 +88,6 @@ public class VCApiTemplateIssuanceSupport {
     @Value("${mosip.certify.data-provider-plugin.id-field-prefix-uri:}")
     private String idPrefix;
 
-    @Value("${mosip.certify.data-provider-plugin.vc-expiry-duration:P730D}")
-    private String defaultExpiryDuration;
-
     @Value("#{${mosip.certify.issuer.ledger-enabled:true}}")
     private boolean isLedgerEnabled;
 
@@ -104,23 +100,25 @@ public class VCApiTemplateIssuanceSupport {
         return templateName;
     }
 
-    public VCApiIssueResult issueFromTemplate(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
+    public VCApiIssueResult issueFromTemplate(Map<String, Object> credentialSubject, CredentialConfigurationDTO config,
+                                              VcApiValidityResolver.ValidityWindow validity) {
         VcApiTemplateClaimValidator.validateRequiredClaims(config.getVcTemplate(), credentialSubject);
 
         String format = config.getCredentialFormat();
         if (VCFormats.LDP_VC.equals(format)) {
-            return issueLdpVc(credentialSubject, config);
+            return issueLdpVc(credentialSubject, config, validity);
         }
         if (VCFormats.MSO_MDOC.equals(format)) {
             Issuer issuer = issuerResolver.resolve(config.getIssuerId());
-            String credential = mdocVcApiIssuanceSupport.issue(credentialSubject, config, issuer);
+            String credential = mdocVcApiIssuanceSupport.issue(credentialSubject, config, issuer, validity);
             return new VCApiIssueResult(credential, VCFormats.MSO_MDOC);
         }
         throw new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
                 "VC API supports ldp_vc and mso_mdoc credential formats; got: " + format);
     }
 
-    private VCApiIssueResult issueLdpVc(Map<String, Object> credentialSubject, CredentialConfigurationDTO config) {
+    private VCApiIssueResult issueLdpVc(Map<String, Object> credentialSubject, CredentialConfigurationDTO config,
+                                        VcApiValidityResolver.ValidityWindow validity) {
         String templateName = resolveTemplateName(config.getCredentialConfigKeyId());
         Issuer issuer = issuerResolver.resolve(config.getIssuerId());
         JSONObject jsonObject = new JSONObject(credentialSubject);
@@ -137,7 +135,8 @@ public class VCApiTemplateIssuanceSupport {
             statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst(), issuer);
         }
 
-        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject, issuer);
+        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject, issuer,
+                validity);
         Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
                 .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
 
@@ -161,7 +160,7 @@ public class VCApiTemplateIssuanceSupport {
                     vcFormatter.getProofAlgorithm(templateName),
                     vcFormatter.getAppID(templateName),
                     vcFormatter.getRefID(templateName),
-                    vcFormatter.getDidUrl(templateName),
+                    issuer.getDidUrl(),
                     vcFormatter.getSignatureCryptoSuite(templateName));
 
             return new VCApiIssueResult(result.getCredential(), VCFormats.LDP_VC);
@@ -173,7 +172,8 @@ public class VCApiTemplateIssuanceSupport {
     }
 
     private Map<String, Object> buildTemplateParams(Map<String, Object> credentialSubject, String templateName,
-                                                    JSONObject jsonObject, Issuer issuer) {
+                                                    JSONObject jsonObject, Issuer issuer,
+                                                    VcApiValidityResolver.ValidityWindow validity) {
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put(Constants.TEMPLATE_NAME, templateName);
         templateParams.put(Constants.DID_URL, issuer.getDidUrl());
@@ -188,22 +188,9 @@ public class VCApiTemplateIssuanceSupport {
         if (StringUtils.isNotBlank(idPrefix)) {
             templateParams.put(VCDMConstants.CREDENTIAL_ID, idPrefix + UUID.randomUUID());
         }
-        ZonedDateTime zonedDateTime = ZonedDateTime.now(ZoneOffset.UTC);
-        String time = zonedDateTime.format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        Duration duration = parseExpiryDuration();
-        String expiryTime = zonedDateTime.plus(duration).format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        templateParams.put(VCDM2Constants.VALID_FROM, time);
-        templateParams.put(VCDM2Constants.VALID_UNTIL, expiryTime);
+        templateParams.put(VCDM2Constants.VALID_FROM, validity.validFrom());
+        templateParams.put(VCDM2Constants.VALID_UNTIL, validity.validUntil());
         return templateParams;
-    }
-
-    private Duration parseExpiryDuration() {
-        try {
-            return Duration.parse(defaultExpiryDuration);
-        } catch (DateTimeParseException e) {
-            log.warn("Incorrect expiry duration format: {}. Using P730D", defaultExpiryDuration);
-            return Duration.parse("P730D");
-        }
     }
 
     private String stripBlankCredentialSubjectId(String unsignedCredential) {

@@ -21,6 +21,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.mdoc.MdocVcApiIssuanceSupport;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
+import io.mosip.certify.utils.VcApiValidityResolver;
 import io.mosip.certify.vcformatters.VCFormatter;
 import org.json.JSONObject;
 import org.junit.Before;
@@ -58,6 +59,8 @@ public class VCApiTemplateIssuanceSupportTest {
 
     private static final String TEMPLATE_NAME = "FarmerCredential|https://www.w3.org/2018/credentials/v1";
     private static final String DID_URL = "did:web:test.issuer";
+    private static final VcApiValidityResolver.ValidityWindow DEFAULT_VALIDITY =
+            new VcApiValidityResolver.ValidityWindow("2026-01-01T00:00:00.000Z", "2028-01-01T00:00:00.000Z");
 
     @InjectMocks
     private VCApiTemplateIssuanceSupport support;
@@ -88,7 +91,6 @@ public class VCApiTemplateIssuanceSupportTest {
         ReflectionTestUtils.setField(support, "didUrl", DID_URL);
         ReflectionTestUtils.setField(support, "renderTemplateId", "");
         ReflectionTestUtils.setField(support, "idPrefix", "");
-        ReflectionTestUtils.setField(support, "defaultExpiryDuration", "P730D");
         ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
         when(velocityEnvConfig.getEnvConfigs()).thenReturn(new HashMap<>());
         issuer = new Issuer();
@@ -122,7 +124,7 @@ public class VCApiTemplateIssuanceSupportTest {
         config.setCredentialFormat(VCFormats.VC_SD_JWT);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config));
+                () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config, DEFAULT_VALIDITY));
         assertEquals(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT, ex.getErrorCode());
     }
 
@@ -133,7 +135,7 @@ public class VCApiTemplateIssuanceSupportTest {
         stubSuccessfulIssuance(config, "{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
 
         VCApiTemplateIssuanceSupport.VCApiIssueResult result =
-                support.issueFromTemplate(credentialSubject, config);
+                support.issueFromTemplate(credentialSubject, config, DEFAULT_VALIDITY);
 
         assertEquals(VCFormats.LDP_VC, result.format());
         assertTrue(result.credential() instanceof JsonLDObject);
@@ -141,21 +143,22 @@ public class VCApiTemplateIssuanceSupportTest {
         verify(credentialFactory).getCredential(VCFormats.LDP_VC);
         verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString(), any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
-        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any());
+        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any(), any());
     }
 
     @Test
     public void issueFromTemplate_success_withMsoMdocFormat() {
         CredentialConfigurationDTO config = mdocConfig();
         Map<String, Object> claims = Map.of("family_name", "Doe", "id", "did:jwk:eyJ...");
-        when(mdocVcApiIssuanceSupport.issue(eq(claims), eq(config), eq(issuer)))
+        when(mdocVcApiIssuanceSupport.issue(eq(claims), eq(config), eq(issuer), eq(DEFAULT_VALIDITY)))
                 .thenReturn("base64url-mdoc-credential");
 
-        VCApiTemplateIssuanceSupport.VCApiIssueResult result = support.issueFromTemplate(claims, config);
+        VCApiTemplateIssuanceSupport.VCApiIssueResult result =
+                support.issueFromTemplate(claims, config, DEFAULT_VALIDITY);
 
         assertEquals(VCFormats.MSO_MDOC, result.format());
         assertEquals("base64url-mdoc-credential", result.credential());
-        verify(mdocVcApiIssuanceSupport).issue(claims, config, issuer);
+        verify(mdocVcApiIssuanceSupport).issue(claims, config, issuer, DEFAULT_VALIDITY);
         verify(credentialFactory, never()).getCredential(VCFormats.LDP_VC);
     }
 
@@ -168,7 +171,7 @@ public class VCApiTemplateIssuanceSupportTest {
         when(vcFormatter.getCredentialStatusPurpose(TEMPLATE_NAME)).thenReturn(List.of("revocation"));
         stubCredentialSigning("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
 
-        support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config);
+        support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config, DEFAULT_VALIDITY);
 
         verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"), eq(issuer));
     }
@@ -186,7 +189,7 @@ public class VCApiTemplateIssuanceSupportTest {
                 .thenReturn("{\"type\":[\"VerifiableCredential\"],\"proof\":{}}");
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config));
+                () -> support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config, DEFAULT_VALIDITY));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -205,7 +208,6 @@ public class VCApiTemplateIssuanceSupportTest {
         when(vcFormatter.getProofAlgorithm(TEMPLATE_NAME)).thenReturn("EdDSA");
         when(vcFormatter.getAppID(TEMPLATE_NAME)).thenReturn("testAppId");
         when(vcFormatter.getRefID(TEMPLATE_NAME)).thenReturn("testRefId");
-        when(vcFormatter.getDidUrl(TEMPLATE_NAME)).thenReturn("did:example:issuer");
         when(vcFormatter.getSignatureCryptoSuite(TEMPLATE_NAME)).thenReturn("Ed25519Signature2020");
 
         ArgumentCaptor<String> unsignedVcCaptor = ArgumentCaptor.forClass(String.class);
@@ -215,7 +217,7 @@ public class VCApiTemplateIssuanceSupportTest {
         when(mockW3CJsonLD.addProof(unsignedVcCaptor.capture(), eq(""), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(mockVcResult);
 
-        support.issueFromTemplate(credentialSubject, config);
+        support.issueFromTemplate(credentialSubject, config, DEFAULT_VALIDITY);
 
         JSONObject unsignedVc = new JSONObject(unsignedVcCaptor.getValue());
         assertFalse(unsignedVc.getJSONObject("credentialSubject").has("id"));
@@ -231,10 +233,40 @@ public class VCApiTemplateIssuanceSupportTest {
         when(ledgerUtils.extractIndexedAttributes(any())).thenReturn(Map.of("fullName", "Jane Doe"));
         when(ledgerUtils.extractCredentialStatusDetails(any())).thenReturn(null);
 
-        support.issueFromTemplate(credentialSubject, config);
+        support.issueFromTemplate(credentialSubject, config, DEFAULT_VALIDITY);
 
         verify(credentialLedgerService).storeLedgerEntry(isNull(), eq(DID_URL), eq("FarmerCredential,VerifiableCredential"),
                 isNull(), anyMap(), any());
+    }
+
+    @Test
+    public void issueFromTemplate_usesClientValidityInTemplateParams() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId(config.getCredentialConfigKeyId()))
+                .thenReturn(TEMPLATE_NAME);
+        when(vcFormatter.getCredentialStatusPurpose(TEMPLATE_NAME)).thenReturn(Collections.emptyList());
+
+        W3CJsonLD mockW3CJsonLD = mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(mockW3CJsonLD));
+        ArgumentCaptor<Map<String, Object>> paramsCaptor = ArgumentCaptor.forClass(Map.class);
+        when(mockW3CJsonLD.createCredential(paramsCaptor.capture(), eq(TEMPLATE_NAME)))
+                .thenReturn("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        when(vcFormatter.getProofAlgorithm(TEMPLATE_NAME)).thenReturn("EdDSA");
+        when(vcFormatter.getAppID(TEMPLATE_NAME)).thenReturn("testAppId");
+        when(vcFormatter.getRefID(TEMPLATE_NAME)).thenReturn("testRefId");
+        when(vcFormatter.getSignatureCryptoSuite(TEMPLATE_NAME)).thenReturn("Ed25519Signature2020");
+        VCResult mockVcResult = new VCResult();
+        mockVcResult.setCredential(JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}"));
+        when(mockW3CJsonLD.addProof(anyString(), eq(""), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(mockVcResult);
+
+        VcApiValidityResolver.ValidityWindow clientValidity =
+                new VcApiValidityResolver.ValidityWindow("2026-07-24T06:30:00.000Z", "2031-07-24T06:30:00.000Z");
+        support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config, clientValidity);
+
+        Map<String, Object> params = paramsCaptor.getValue();
+        assertEquals("2026-07-24T06:30:00.000Z", params.get(VCDM2Constants.VALID_FROM));
+        assertEquals("2031-07-24T06:30:00.000Z", params.get(VCDM2Constants.VALID_UNTIL));
     }
 
     @Test
@@ -248,9 +280,10 @@ public class VCApiTemplateIssuanceSupportTest {
                 templateJson.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueFromTemplate(Map.of("family_name", "Doe", "given_name", "Jane"), config));
+                () -> support.issueFromTemplate(Map.of("family_name", "Doe", "given_name", "Jane"), config,
+                        DEFAULT_VALIDITY));
         assertEquals(ErrorConstants.MISSING_MANDATORY_CLAIM, ex.getErrorCode());
-        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any());
+        verify(mdocVcApiIssuanceSupport, never()).issue(any(), any(), any(), any());
     }
 
     private CredentialConfigurationDTO ldpConfig() {
@@ -287,7 +320,6 @@ public class VCApiTemplateIssuanceSupportTest {
         when(vcFormatter.getProofAlgorithm(TEMPLATE_NAME)).thenReturn("EdDSA");
         when(vcFormatter.getAppID(TEMPLATE_NAME)).thenReturn("testAppId");
         when(vcFormatter.getRefID(TEMPLATE_NAME)).thenReturn("testRefId");
-        when(vcFormatter.getDidUrl(TEMPLATE_NAME)).thenReturn("did:example:issuer");
         when(vcFormatter.getSignatureCryptoSuite(TEMPLATE_NAME)).thenReturn("Ed25519Signature2020");
 
         VCResult mockVcResult = new VCResult();

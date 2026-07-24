@@ -18,6 +18,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.utils.MDocProcessor;
+import io.mosip.certify.utils.VcApiValidityResolver;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -46,6 +47,8 @@ import static org.mockito.Mockito.when;
 public class MdocVcApiIssuanceSupportTest {
 
     private static final String TEMPLATE_NAME = "default|mso_mdoc|org.iso.18013.5.1.mDL";
+    private static final VcApiValidityResolver.ValidityWindow DEFAULT_VALIDITY =
+            new VcApiValidityResolver.ValidityWindow("2026-01-01T00:00:00.000Z", "2028-01-01T00:00:00.000Z");
 
     @InjectMocks
     private MdocVcApiIssuanceSupport support;
@@ -76,7 +79,6 @@ public class MdocVcApiIssuanceSupportTest {
 
     @Before
     public void setUp() {
-        ReflectionTestUtils.setField(support, "defaultExpiryDuration", "P730D");
         ReflectionTestUtils.setField(support, "idPrefix", "");
         ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
         ReflectionTestUtils.setField(support, "allowPropertyDs", false);
@@ -94,7 +96,7 @@ public class MdocVcApiIssuanceSupportTest {
         config.setCredentialFormat(VCFormats.MSO_MDOC);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issue(Map.of("family_name", "Doe"), config, issuer));
+                () -> support.issue(Map.of("family_name", "Doe"), config, issuer, DEFAULT_VALIDITY));
         assertEquals(ErrorConstants.MDOC_DOCTYPE_REQUIRED, ex.getErrorCode());
     }
 
@@ -105,7 +107,7 @@ public class MdocVcApiIssuanceSupportTest {
                 .thenReturn("default-key");
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issue(Map.of("family_name", "Doe"), config, issuer));
+                () -> support.issue(Map.of("family_name", "Doe"), config, issuer, DEFAULT_VALIDITY));
         assertEquals(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, ex.getErrorCode());
     }
 
@@ -134,7 +136,7 @@ public class MdocVcApiIssuanceSupportTest {
         }
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issue(Map.of("family_name", "Doe"), config, issuer));
+                () -> support.issue(Map.of("family_name", "Doe"), config, issuer, DEFAULT_VALIDITY));
         assertEquals(ErrorConstants.MDOC_ISSUER_DS_NOT_CONFIGURED, ex.getErrorCode());
         verify(mdocIssuerKeyCertLoader, org.mockito.Mockito.never()).load();
     }
@@ -170,7 +172,7 @@ public class MdocVcApiIssuanceSupportTest {
                 "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"x\",\"y\":\"y\"}".getBytes());
         String result = support.issue(Map.of(
                 "family_name", "Doe",
-                "id", "did:jwk:" + holderJwk), config, issuer);
+                "id", "did:jwk:" + holderJwk), config, issuer, DEFAULT_VALIDITY);
 
         assertNotNull(result);
         assertFalse(result.isBlank());
@@ -207,7 +209,7 @@ public class MdocVcApiIssuanceSupportTest {
         when(mDocProcessor.signMSO(eq(mso), eq("CERTIFY_DS_MDL_ISSUER"), eq("EC_SECP256R1_SIGN"), eq("ES256")))
                 .thenReturn(createMockCoseSign1());
 
-        String result = support.issue(Map.of("family_name", "Doe"), config, issuer);
+        String result = support.issue(Map.of("family_name", "Doe"), config, issuer, DEFAULT_VALIDITY);
 
         assertNotNull(result);
         assertFalse(result.isBlank());

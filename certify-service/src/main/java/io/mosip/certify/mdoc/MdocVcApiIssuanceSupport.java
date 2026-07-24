@@ -23,6 +23,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.utils.CredentialCacheKeyGenerator;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.utils.MDocProcessor;
+import io.mosip.certify.utils.VcApiValidityResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.json.JSONException;
@@ -32,12 +33,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -89,9 +88,6 @@ public class MdocVcApiIssuanceSupport {
     @Autowired
     private VelocityEnvConfig velocityEnvConfig;
 
-    @Value("${mosip.certify.data-provider-plugin.vc-expiry-duration:P730D}")
-    private String defaultExpiryDuration;
-
     @Value("${mosip.certify.data-provider-plugin.id-field-prefix-uri:}")
     private String idPrefix;
 
@@ -105,7 +101,8 @@ public class MdocVcApiIssuanceSupport {
     @Value("${mosip.certify.mdoc.allow-property-ds:false}")
     private boolean allowPropertyDs;
 
-    public String issue(Map<String, Object> credentialSubject, CredentialConfigurationDTO config, Issuer issuer) {
+    public String issue(Map<String, Object> credentialSubject, CredentialConfigurationDTO config, Issuer issuer,
+                        VcApiValidityResolver.ValidityWindow validity) {
         if (StringUtils.isBlank(config.getDocType())) {
             throw new CertifyException(ErrorConstants.MDOC_DOCTYPE_REQUIRED,
                     "docType is required on credential configuration for mso_mdoc issuance");
@@ -115,7 +112,8 @@ public class MdocVcApiIssuanceSupport {
         JSONObject jsonObject = new JSONObject(credentialSubject);
         jsonObject.put(Constants.TYPE, config.getDocType());
 
-        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject, issuer, config);
+        Map<String, Object> templateParams = buildTemplateParams(credentialSubject, templateName, jsonObject, issuer,
+                config, validity);
         Credential cred = credentialFactory.getCredential(VCFormats.MSO_MDOC)
                 .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
 
@@ -203,7 +201,8 @@ public class MdocVcApiIssuanceSupport {
 
     private Map<String, Object> buildTemplateParams(Map<String, Object> credentialSubject, String templateName,
                                                     JSONObject jsonObject, Issuer issuer,
-                                                    CredentialConfigurationDTO config) {
+                                                    CredentialConfigurationDTO config,
+                                                    VcApiValidityResolver.ValidityWindow validity) {
         Map<String, Object> templateParams = new HashMap<>();
         templateParams.put(Constants.TEMPLATE_NAME, templateName);
         templateParams.put(Constants.DID_URL, issuer.getDidUrl());
@@ -216,22 +215,9 @@ public class MdocVcApiIssuanceSupport {
         if (StringUtils.isNotBlank(idPrefix)) {
             templateParams.put(VCDMConstants.CREDENTIAL_ID, idPrefix + UUID.randomUUID());
         }
-        ZonedDateTime zonedDateTime = ZonedDateTime.now(ZoneOffset.UTC);
-        String time = zonedDateTime.format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        Duration duration = parseExpiryDuration();
-        String expiryTime = zonedDateTime.plus(duration).format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        templateParams.put(VCDM2Constants.VALID_FROM, time);
-        templateParams.put(VCDM2Constants.VALID_UNTIL, expiryTime);
+        templateParams.put(VCDM2Constants.VALID_FROM, validity.validFrom());
+        templateParams.put(VCDM2Constants.VALID_UNTIL, validity.validUntil());
         return templateParams;
-    }
-
-    private Duration parseExpiryDuration() {
-        try {
-            return Duration.parse(defaultExpiryDuration);
-        } catch (DateTimeParseException e) {
-            log.warn("Incorrect expiry duration format: {}. Using P730D", defaultExpiryDuration);
-            return Duration.parse("P730D");
-        }
     }
 
     private void storeLedger(JSONObject jsonObject, Map<String, Object> templateParams, String time, Issuer issuer) {

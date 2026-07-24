@@ -99,11 +99,11 @@ class WellKnownControllerTest {
 
     @Test
     void getIssuerDIDDocument_success() throws Exception {
-        Map<String, Object> mockDidDoc = Collections.singletonMap("id", "did:web:example.com:v1:certify:issuers:iiitb");
+        Map<String, Object> mockDidDoc = Collections.singletonMap("id", "did:web:example.com:iiitb");
         when(vcIssuanceService.getDIDDocument(eq("iiitb"))).thenReturn(mockDidDoc);
         mockMvc.perform(get("/issuers/iiitb/did.json"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value("did:web:example.com:v1:certify:issuers:iiitb"));
+                .andExpect(jsonPath("$.id").value("did:web:example.com:iiitb"));
         verify(vcIssuanceService, times(1)).getDIDDocument(eq("iiitb"));
     }
 

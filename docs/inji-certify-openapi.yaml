@@ -1464,6 +1464,9 @@ paths:
       summary: Issue signed verifiable credential (client credential engine)
       description: |
         Server-to-server issuance using an onboarded credential configuration and existing `vcTemplate`.
+        Request body follows VCALM Issue Credential shape (`credential` + `options`).
+        Client may send `@context`/`type`/`issuer` for spec alignment; Certify still renders those from the template/issuer.
+        Client `validFrom`/`validUntil` (when both present) are used when signing; otherwise `vc-expiry-duration` applies.
         Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`.
         Supports `ldp_vc` (JSON-LD VC) and `mso_mdoc` (base64url CBOR mdoc) based on the configuration's `credentialFormat`.
         For `mso_mdoc`, production requires the issuer KeyManager Document Signer (`mdocDsAppId`).
@@ -3160,16 +3163,51 @@ components:
         credentialConfigurationId:
           type: string
           description: Active credential configuration key id (credentialConfigKeyId)
-    VCApiIssueRequest:
+    VCApiCredentialInput:
       type: object
       required:
         - credentialSubject
-        - options
       properties:
+        '@context':
+          type: array
+          description: Accepted for VCALM shape; not used when signing (comes from vcTemplate)
+          items: {}
+        type:
+          type: array
+          description: Accepted for VCALM shape; not used when signing (comes from vcTemplate)
+          items:
+            type: string
+        issuer:
+          description: Accepted for VCALM shape; not used when signing (comes from issuer DID / template)
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        id:
+          type: string
+          description: Optional credential id (VCALM shape)
+        validFrom:
+          type: string
+          description: |
+            Optional ISO-8601 start of validity. When both validFrom and validUntil are set,
+            Certify uses them when signing; otherwise falls back to vc-expiry-duration.
+          example: '2026-07-24T06:30:00.000Z'
+        validUntil:
+          type: string
+          description: Optional ISO-8601 end of validity (must be after validFrom when both are set)
+          example: '2031-07-24T06:30:00.000Z'
         credentialSubject:
           type: object
           additionalProperties: true
           description: Claim values matching vcTemplate Velocity placeholders
+    VCApiIssueRequest:
+      type: object
+      required:
+        - credential
+        - options
+      properties:
+        credential:
+          $ref: '#/components/schemas/VCApiCredentialInput'
         options:
           $ref: '#/components/schemas/VCApiIssueOptions'
     VCApiIssueResponse:

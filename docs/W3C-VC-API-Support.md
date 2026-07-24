@@ -10,7 +10,7 @@ Design document for adding a **parallel** W3C VC API issuance path in Inji Certi
 |------|-------------|
 | **Consumer** | Client (server-to-server) |
 | **Role of Certify** | Credential **signing engine** for Client |
-| **Input** | **Credential body** (`credentialSubject` claims) + `credentialConfigurationId` — VC built via existing **`vcTemplate`** (Velocity) |
+| **Input** | VCALM-aligned **`credential`** (`credentialSubject` + optional `validFrom`/`validUntil` / envelope fields) + `options.credentialConfigurationId` — VC built via existing **`vcTemplate`** (Velocity) |
 | **Output** | Signed `verifiableCredential` |
 | **Auth** | API key (no eSignet / OAuth for this API) |
 
@@ -24,18 +24,18 @@ Design document for adding a **parallel** W3C VC API issuance path in Inji Certi
 
 **Feature flag:** `mosip.certify.vc-api.enabled=false` (default off)
 
-### 2.1 Request payload — credential body + existing `vcTemplate` (chosen design)
+### 2.1 Request payload — VCALM `credential` + existing `vcTemplate` (chosen design)
 
-Client sends **only the credential body** (claims). Certify **does not duplicate** template JSON — it reuses the **`vcTemplate`** already stored in `credential_config` and rendered by **`VelocityTemplatingEngineImpl`**.
+Client sends a VCALM-aligned **`credential`** object. Certify **does not** take `@context` / `type` / `issuer` from the request for signing — it reuses the **`vcTemplate`** already stored in `credential_config` and rendered by **`VelocityTemplatingEngineImpl`**. Client **`validFrom` / `validUntil`** (when both are set) are used when signing.
 
 | Who provides | What |
 |--------------|------|
-| **Client** | `credentialSubject` fields (claim values matching template placeholders) |
-| **Credential config** (already onboarded) | `vcTemplate`, `@context`, `type`, `didUrl`, signing keys |
-| **Certify** | Velocity render → optional status list → `addProof` → ledger |
+| **Client** | `credential.credentialSubject` (claim values), optional `validFrom`/`validUntil`, optional `@context`/`type`/`issuer` (spec shape only) |
+| **Credential config** (already onboarded) | `vcTemplate`, `@context`, `type`, signing keys |
+| **Issuer / Certify** | Issuer DID (`${_issuer}`), Velocity render → optional status list → `addProof` → ledger |
 
 
-#### Request contract (v1)
+#### Request contract
 
 ```http
 POST /v1/certify/vc-api/credentials/issue
@@ -45,10 +45,20 @@ Content-Type: application/json
 
 ```json
 {
-  "credentialSubject": {
-    "id": "did:example:holder",
-    "fullName": "Jane Doe",
-    "idNumber": "12345"
+  "credential": {
+    "@context": [
+      "https://www.w3.org/ns/credentials/v2",
+      "https://example.org/credentials/farmer/v1"
+    ],
+    "type": ["VerifiableCredential", "FarmerCredential"],
+    "issuer": "did:web:example.com:issuer",
+    "validFrom": "2026-07-24T06:30:00Z",
+    "validUntil": "2031-07-24T06:30:00Z",
+    "credentialSubject": {
+      "id": "did:example:holder",
+      "fullName": "Jane Doe",
+      "idNumber": "12345"
+    }
   },
   "options": {
     "credentialConfigurationId": "my-credential"
@@ -56,11 +66,18 @@ Content-Type: application/json
 }
 ```
 
-Placeholder names in `credentialSubject` must match the **`vcTemplate`** (e.g. `${fullName}` → key `fullName`), same rule as DataProvider plugin data today.
+Placeholder names in `credential.credentialSubject` must match the **`vcTemplate`** (e.g. `${fullName}` → key `fullName`), same rule as DataProvider plugin data today.
 
-#### Optional later: full unsigned VC
+| Field | Used when signing? |
+|-------|--------------------|
+| `credential.credentialSubject` | Yes — template claims |
+| `credential.validFrom` / `validUntil` | Yes — when both present; else server `vc-expiry-duration` fallback |
+| `credential.@context` / `type` / `issuer` | No — from onboarded template / issuer DID |
+| `options.credentialConfigurationId` | Yes — selects template + keys |
 
-If needed for W3C VC API strict interop, accept a `credential` object instead of `credentialSubject` and skip Velocity (sign-only path). Not in v1.
+#### Optional later: sign-only path
+
+If needed for stricter W3C VC API interop, accept client `@context`/`type`/`issuer` and skip Velocity (sign-only). Not in this release.
 
 ### Response
 
@@ -80,10 +97,11 @@ If needed for W3C VC API strict interop, accept a `credential` object instead of
 ### Validation rules
 
 - `options.credentialConfigurationId` required; must exist in `credential_config` (status `active`).
-- `credentialSubject` required (non-empty).
+- `credential` required; `credential.credentialSubject` required (non-empty).
 - Config `credentialFormat` = `ldp_vc` or `mso_mdoc`.
 - Claim keys must be compatible with onboarded `vcTemplate` placeholders.
-- Issuer / `@context` / `type` (LDP) or `docType` (mdoc) come from **template + config**, not from Client.
+- Issuer / `@context` / `type` (LDP) or `docType` (mdoc) come from **template + issuer**, not from Client (client may still send them for VCALM shape).
+- If both `validFrom` and `validUntil` are sent, both must be valid ISO-8601 and `validUntil > validFrom`. If only one is sent → `invalid_credential_validity`. If neither → server computes from `vc-expiry-duration`.
 - For `mso_mdoc`, production requires issuer KeyManager Document Signer (`mdocDsAppId`). Property DS is non-prod only (`mosip.certify.mdoc.allow-property-ds=true`). See [VC-API-mDoc-Support.md](./VC-API-mDoc-Support.md) and [mDoc-IACA-Verifier-Trust.md](./mDoc-IACA-Verifier-Trust.md).
 
 ### Response — format field
@@ -118,7 +136,7 @@ flowchart TB
         KM[MOSIP Key Manager]
     end
 
-    Client -->|"API key + credentialSubject"| VCAPI --> VAS --> Support
+    Client -->|"API key + credential"| VCAPI --> VAS --> Support
     Support -->|ldp_vc| VF
     Support -->|ldp_vc| ST
     Support -->|ldp_vc| CF
@@ -146,7 +164,7 @@ sequenceDiagram
     Ctrl->>F: Validate X-API-Key
     F-->>Ctrl: OK
     Ctrl->>Svc: issue(request)
-    Svc->>Svc: Validate credentialSubject + config id
+    Svc->>Svc: Validate credential.credentialSubject + config id
     Svc->>Svc: templateName = CredentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId
     Svc->>VF: createCredential(templateParams, templateName)
     Note over VF: Velocity renders vcTemplate from DB
@@ -163,8 +181,8 @@ sequenceDiagram
 ### 3.3 Processing order
 
 ```
-1. Validate credentialSubject + credentialConfigurationId
-2. Resolve templateName from config id (CredentialCacheKeyGenerator)
+1. Validate credential + credentialConfigurationId
+2. Resolve validFrom/validUntil (client or vc-expiry-duration fallback); resolve templateName from config id
 3. Build templateParams from credentialSubject + did-url property + validFrom/validUntil + credential id
 4. Velocity: Credential.createCredential() → VCFormatter.format() → uses vcTemplate from DB
 5. Optional: StatusListCredentialService.addCredentialStatus (before sign, on JSONObject)

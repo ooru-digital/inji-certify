@@ -203,7 +203,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     @Override
     public Map<String, Object> getDIDDocument(String issuerId) {
         Issuer issuer = issuerResolver.resolve(issuerId);
-        didDocument = didDocumentUtil.generateDIDDocument(issuer.getDidUrl(), issuer.getIssuerId());
+        didDocument = didDocumentUtil.generateDIDDocument(issuer);
         return didDocument;
     }
 
@@ -330,7 +330,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 log.info("Signing OID4VCI mdoc with issuer DS appId={}, refId={}", appId, refId);
             }
             VCResult<?> result = cred.addProof(unsignedCredential, "", proofAlgorithm, appId, refId,
-                    vcFormatter.getDidUrl(templateName), vcFormatter.getSignatureCryptoSuite(templateName));
+                    issuer.getDidUrl(), vcFormatter.getSignatureCryptoSuite(templateName));
 
             jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
             return result;

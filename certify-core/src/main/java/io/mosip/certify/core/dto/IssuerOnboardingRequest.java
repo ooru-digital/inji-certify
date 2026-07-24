@@ -27,6 +27,11 @@ public class IssuerOnboardingRequest {
     @JsonProperty("authorizationServers")
     private List<String> authorizationServers;
 
+    /**
+     * Client-owned DID identifier (e.g. {@code did:web:did.credissuer.com:iiitb}).
+     * Required — Certify does not auto-derive this from {@code mosip.certify.domain.url}.
+     */
+    @NotBlank(message = ErrorConstants.INVALID_DID_URL)
     @JsonProperty("didUrl")
     private String didUrl;
 }

@@ -8,8 +8,6 @@ package io.mosip.certify.utils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.net.URI;
-import java.util.Arrays;
-import java.util.stream.Collectors;
 
 public final class DidWebUtil {
 
@@ -17,20 +15,17 @@ public final class DidWebUtil {
     }
 
     /**
-     * Builds a did:web identifier whose HTTPS resolution path matches where Certify
-     * hosts the issuer DID document ({@code {domain}{servletPath}/issuers/{issuerId}/did.json}).
+     * Builds a did:web identifier of the form {@code did:web:{host[:port]}:{issuerId}}.
+     * Clients typically construct and pass this as onboard {@code didUrl}; Certify does not
+     * auto-derive it from {@code mosip.certify.domain.url}.
      */
-    public static String buildIssuerDidWebIdentifier(String domainUrl, String servletPath, String issuerId) {
-        String hostWithPort = extractHostWithPort(domainUrl);
-        String pathSegment = toDidWebPathSegment(servletPath);
-        if (StringUtils.isNotBlank(pathSegment)) {
-            return "did:web:" + hostWithPort + ":" + pathSegment + ":issuers:" + issuerId;
-        }
-        return "did:web:" + hostWithPort + ":issuers:" + issuerId;
+    public static String buildIssuerDidWebIdentifier(String domainUrl, String issuerId) {
+        return "did:web:" + extractHostWithPort(domainUrl) + ":" + issuerId;
     }
 
     /**
-     * HTTPS URL for the issuer DID document (did:web resolution target).
+     * Certify API URL where clients can fetch the issuer DID document JSON
+     * ({@code {domain}{servletPath}/issuers/{issuerId}/did.json}).
      */
     public static String buildIssuerDidDocumentUrl(String domainUrl, String servletPath, String issuerId) {
         String normalizedServletPath = normalizeServletPath(servletPath);
@@ -56,14 +51,5 @@ public final class DidWebUtil {
             return "";
         }
         return servletPath.startsWith("/") ? servletPath : "/" + servletPath;
-    }
-
-    private static String toDidWebPathSegment(String servletPath) {
-        if (StringUtils.isBlank(servletPath) || "/".equals(servletPath)) {
-            return "";
-        }
-        return Arrays.stream(servletPath.split("/"))
-                .filter(StringUtils::isNotBlank)
-                .collect(Collectors.joining(":"));
     }
 }

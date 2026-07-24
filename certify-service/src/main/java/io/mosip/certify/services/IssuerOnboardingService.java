@@ -139,6 +139,10 @@ public class IssuerOnboardingService {
             throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
                     "Cannot onboard reserved issuerId: default");
         }
+        if (StringUtils.isBlank(request.getDidUrl()) || !request.getDidUrl().startsWith("did:")) {
+            throw new CertifyException(ErrorConstants.INVALID_DID_URL,
+                    "didUrl is required and must be a DID (e.g. did:web:did.credissuer.com:" + issuerId + ")");
+        }
     }
 
     private String abbreviateForError(String issuerId) {
@@ -230,10 +234,9 @@ public class IssuerOnboardingService {
     }
 
     private String resolveDidUrl(IssuerOnboardingRequest request) {
-        if (StringUtils.isNotBlank(request.getDidUrl())) {
-            return request.getDidUrl();
-        }
-        return DidWebUtil.buildIssuerDidWebIdentifier(domainUrl, servletPath, request.getIssuerId());
+        // Client-owned DID; never auto-derived from mosip.certify.domain.url
+        // (that property is the Certify API base for status-list / metadata URLs).
+        return request.getDidUrl().trim();
     }
 
     private List<String> resolveAuthorizationServers(List<String> requested) {

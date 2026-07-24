@@ -10,16 +10,19 @@ import foundation.identity.jsonld.JsonLDObject;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
+import io.mosip.certify.core.dto.VCApiCredentialInput;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
 import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
+import io.mosip.certify.utils.VcApiValidityResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -33,6 +36,9 @@ public class VCApiIssuanceService {
     @Autowired
     private VCApiTemplateIssuanceSupport vcApiTemplateIssuanceSupport;
 
+    @Autowired
+    private VcApiValidityResolver vcApiValidityResolver;
+
     public VCApiIssueResponse issue(VCApiIssueRequest request) {
         String credentialConfigurationId = request.getOptions().getCredentialConfigurationId();
         log.info("VC API issue request for configuration: {}", credentialConfigurationId);
@@ -41,8 +47,14 @@ public class VCApiIssuanceService {
             CredentialConfigurationDTO config = credentialConfigurationService
                     .getCredentialConfigurationById(credentialConfigurationId);
 
+            VCApiCredentialInput credential = request.getCredential();
+            // @context, type, and issuer on credential are accepted for VCALM shape only;
+            // signing still uses onboarded vcTemplate + issuer DID.
+            VcApiValidityResolver.ValidityWindow validity = vcApiValidityResolver.resolve(
+                    credential.getValidFrom(), credential.getValidUntil());
+
             VCApiTemplateIssuanceSupport.VCApiIssueResult result = vcApiTemplateIssuanceSupport
-                    .issueFromTemplate(request.getCredentialSubject(), config);
+                    .issueFromTemplate(credential.getCredentialSubject(), config, validity);
 
             VCApiIssueResponse response = new VCApiIssueResponse();
             response.setFormat(result.format());
@@ -66,18 +78,54 @@ public class VCApiIssuanceService {
         return toCredentialMap(result.credential());
     }
 
+    /**
+     * Preferred property order for LDP VC JSON responses (VCDM example alignment).
+     * Remaining properties are appended in their original encounter order.
+     */
+    private static final List<String> VC_PROPERTY_ORDER = List.of(
+            "@context",
+            "id",
+            "type",
+            "issuer",
+            "validFrom",
+            "validUntil",
+            "issuanceDate",
+            "expirationDate",
+            "credentialSubject",
+            "credentialStatus",
+            "credentialSchema",
+            "evidence",
+            "termsOfUse",
+            "refreshService",
+            "renderMethod",
+            "proof"
+    );
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> toCredentialMap(Object credential) {
         if (credential instanceof JsonLDObject jsonLDObject) {
             Object json = jsonLDObject.getJsonObject();
             if (json instanceof Map<?, ?> map) {
-                return new LinkedHashMap<>((Map<String, Object>) map);
+                return orderCredentialProperties((Map<String, Object>) map);
             }
         }
         if (credential instanceof Map<?, ?> map) {
-            return new LinkedHashMap<>((Map<String, Object>) map);
+            return orderCredentialProperties((Map<String, Object>) map);
         }
         throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
                 "Unable to convert verifiable credential to response format");
+    }
+
+    private Map<String, Object> orderCredentialProperties(Map<String, Object> source) {
+        Map<String, Object> ordered = new LinkedHashMap<>();
+        for (String key : VC_PROPERTY_ORDER) {
+            if (source.containsKey(key)) {
+                ordered.put(key, source.get(key));
+            }
+        }
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            ordered.putIfAbsent(entry.getKey(), entry.getValue());
+        }
+        return ordered;
     }
 }
