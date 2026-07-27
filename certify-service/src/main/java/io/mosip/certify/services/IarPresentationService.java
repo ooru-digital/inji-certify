@@ -187,11 +187,26 @@ public class IarPresentationService {
     private VpVerificationResponse getVpVerificationResult(String transactionId) throws CertifyException {
         try {
             List<String> requestIds = vpRequestService.getLatestRequestIdFor(transactionId);
-            log.debug("Fetching VP result for transactionId: {}, requestIds: {}", transactionId, requestIds);
+            log.info("Fetching VP result for transactionId: {}, requestIds: {}", transactionId, requestIds);
 
             VerificationRequestDto verificationRequest = new VerificationRequestDto();
             verificationRequest.setIncludeClaims(true);
             VPVerificationResultDto vpResult = vpSubmissionService.getVPResultV2(verificationRequest, requestIds, transactionId);
+            if (vpResult != null) {
+                log.info("VP check - allChecksOk: {}", vpResult.isAllChecksSuccessful());
+                List<CredentialResultsDto> credentialResults = vpResult.getCredentialResults();
+                if (credentialResults != null && !credentialResults.isEmpty()
+                        && credentialResults.get(0) != null
+                        && credentialResults.get(0).getHolderProofCheck() != null) {
+                    CredentialResultsDto cr = credentialResults.get(0);
+                    log.info("VP check - holderValid: {}", cr.getHolderProofCheck().isValid());
+                    if (cr.getHolderProofCheck().getError() != null) {
+                        log.info("VP check - holderErrorCode: {}, holderErrorMessage: {}",
+                                cr.getHolderProofCheck().getError().getErrorCode(),
+                                cr.getHolderProofCheck().getError().getErrorMessage());
+                    }
+                }
+            }
 
             VpVerificationResponse response = new VpVerificationResponse();
             response.setRequestId(transactionId);

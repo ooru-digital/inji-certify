@@ -49,8 +49,8 @@ sequenceDiagram
     IC->>IVP: 6. Create presentation request
     IVP-->>IC: 7. {request_id,transaction_id, {standard ovp request by value with response_mode as "direct_post" or "direct_post.jwt"}} (non-normative)
     IC->>IC: 8. store transaction id for the presentation request mapped to Auth Session
-    Note over IC: Map direct_post to iae-post and direct_post.jwt to iae-post.jwt and construct the response
-    IC-->>W: 9. 200 Interactive Authorization Response<br/>{status:"require_interaction", type:"urn:openid:dcp:iae:openid4vp_presentation", auth_session:"..random string", openid4vp_request: {standard ovp request by value with response_mode as "iae-post" or "iae-post.jwt"}}
+    Note over IC: Map direct_post to iae_post and direct_post.jwt to iae_post.jwt and construct the response
+    IC-->>W: 9. 200 Interactive Authorization Response<br/>{status:"require_interaction", type:"urn:openid:dcp:iae:openid4vp_presentation", auth_session:"..random string", openid4vp_request: {standard ovp request by value with response_mode as "iae_post" or "iae_post.jwt"}}
     
     Note over W,IC: 2. Presentation Flow with Issuer and VP Verifier
     W->>W: 10. Display and select credential(s) which satisfies presentation request criteria
@@ -97,7 +97,7 @@ The Wallet initiates the request, and the Issuer determines if a presentation is
 3. **Inji Certify to VP Verifier**: Instructs the VP Verifier to create a presentation request.
 4. **VP Verifier to Inji Certify**: Returns `request_id`, `transaction_id`, and `request` (e.g. `{response_type": "vp_token","response_mode": "direct_post"....}`). Inji Certify stores `transaction_id` mapped to the Auth Session.
 5. **Inji Certify to Wallet**: Responds with `200 Interactive Authorization Response`. Includes `status:"require_interaction"`, `type:"urn:openid:dcp:iae:openid4vp_presentation"`, `auth_session`, `openid4vp_request:{}`
-    - The `openid4vp_request` contains the standard OpenID4VP request by value, with `response_mode` set to either `iae-post` for unencrypted response or `iae-post.jwt` for encrypted response. [Refer](https://openid.github.io/OpenID4VCI/openid-4-verifiable-credential-issuance-1_1-wg-draft.html#name-interactive-authorization-e)
+    - The `openid4vp_request` contains the standard OpenID4VP request by value, with `response_mode` set to either `iae_post` for unencrypted response or `iae_post.jwt` for encrypted response. [Refer](https://openid.github.io/OpenID4VCI/openid-4-verifiable-credential-issuance-1_1-wg-draft.html#name-interactive-authorization)
 
 ### Phase 2: Presentation Flow with Issuer and VP Verifier
 
@@ -107,8 +107,8 @@ The Wallet interacts with the VP Verifier
 3. **User to Wallet**: User approves.
 4. **Wallet to Inji Certify**: Send VP response
     - POST Content-Type: application/x-www-form-urlencoded /iae<br/>{auth_session=...&openid4vp_response=...}
-    - if response_mode is `iae-post` then openid4vp_response is unencrypted, {"vp_token": "...", "presentation_submission": {...}}
-    - if response_mode is `iae-post.jwt` then openid4vp_response is encrypted, {response='...'}
+    - if response_mode is `iae_post` then openid4vp_response is unencrypted, {"vp_token": "...", "presentation_submission": {...}}
+    - if response_mode is `iae_post.jwt` then openid4vp_response is encrypted, {response='...'}
 5. **Inji Certify**: Validates `auth_session`
 6. **Inji Certify to VP Verifier**: Forward vp response to the VP Verifier for verification on response_uri shared in `openid4vp_request`
 7. **VP Verifier**: Verifies the VP response
@@ -126,8 +126,6 @@ This flow is based on concepts and standards from the following documents:
 
 * [RFC 8414 - OAuth 2.0 Authorization Server Metadata](https://tools.ietf.org/html/rfc8414)
 
-* [OpenID for Verifiable Credential Issuance (OID4VCI) - Editor Draft](https://openid.github.io/OpenID4VCI/openid-4-verifiable-credential-issuance-wg-draft.html)
-
-* [EUDI Wallet Blueprint - Presentation During Issuance (Conceptual basis for the Presentation During Issuance flow)](https://bmi.usercontent.opencode.de/eudi-wallet/eidas-2.0-architekturkonzept/flows/Presentation-During-Issuance/)
+* [OpenID for Verifiable Credential Issuance (OID4VCI) - Editor Draft](https://openid.github.io/OpenID4VCI/openid-4-verifiable-credential-issuance-1_1-wg-draft.html#name-interactive-authorization)
 
 * [GitHub issue from OpenID4VCI](https://github.com/openid/OpenID4VCI/issues/473)

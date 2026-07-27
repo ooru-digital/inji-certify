@@ -47,10 +47,10 @@ public class IarVpRequestService {
     @Value("${mosip.certify.verify.service.verifier-client-id:}")
     private String verifierClientId;
 
-    @Value("${mosip.certify.iae.response-mode.post:iae-post}")
+    @Value("${mosip.certify.iae.response-mode.post:iae_post}")
     private String iaePostResponseMode;
 
-    @Value("${mosip.certify.iae.response-mode.post-jwt:iae-post.jwt}")
+    @Value("${mosip.certify.iae.response-mode.post-jwt:iae_post.jwt}")
     private String iaePostJwtResponseMode;
 
     @Value("${mosip.certify.oauth.interactive-authorization-endpoint:}")

@@ -118,7 +118,7 @@ class OAuthControllerTest {
                 .andExpect(jsonPath("$.type").value("urn:openid:dcp:iae:openid4vp_presentation"))
                 .andExpect(jsonPath("$.auth_session").value("test-session"))
                 .andExpect(jsonPath("$.openid4vp_request.response_type").value("vp_token"))
-                .andExpect(jsonPath("$.openid4vp_request.response_mode").value("iae-post.jwt"));
+                .andExpect(jsonPath("$.openid4vp_request.response_mode").value("iae_post.jwt"));
 
         verify(iarService, times(1)).handleIarRequest(any(IarRequest.class));
     }
@@ -779,7 +779,7 @@ class OAuthControllerTest {
             
             Map<String, Object> openId4VpRequest = new HashMap<>();
             openId4VpRequest.put("response_type", "vp_token");
-            openId4VpRequest.put("response_mode", "iae-post.jwt");
+            openId4VpRequest.put("response_mode", "iae_post.jwt");
             openId4VpRequest.put("client_id", "test-client");
             
             PresentationDefinition presentationDefinition = new PresentationDefinition();
