@@ -123,8 +123,12 @@ Optional batch cron (off by default): set `mosip.certify.mdoc.ds.rotation.enable
 ```properties
 mosip.certify.mdoc.iaca.key-policy.validity-days=7300
 mosip.certify.mdoc.iaca.key-policy.pre-expire-days=90
-mosip.certify.mdoc.ds.key-policy.validity-days=730
+mosip.certify.mdoc.ds.key-policy.validity-days=457
 mosip.certify.mdoc.ds.key-policy.pre-expire-days=60
+# optional ISO profile extras (IAN / CRL DP); blank = omit
+# mosip.certify.mdoc.certificate.issuer-alternative-name.email=
+# mosip.certify.mdoc.certificate.issuer-alternative-name.uri=
+# mosip.certify.mdoc.certificate.crl-distribution-point-uri=
 # optional proactive batch; default false — on-demand rotation during signing is primary
 mosip.certify.mdoc.ds.rotation.enabled=false
 mosip.certify.mdoc.ds.rotation.cron=0 0 2 * * *

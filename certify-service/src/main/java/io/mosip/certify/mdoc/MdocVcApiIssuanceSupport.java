@@ -166,12 +166,10 @@ public class MdocVcApiIssuanceSupport {
 
     private byte[] signMso(Map<String, Object> mso, Issuer issuer) throws Exception {
         if (hasIssuerDocumentSigner(issuer)) {
-            // ROOT-style lazy rotation: rotate DS when near expiry / expired, then sign
-            mdocPkiService.ensureDocumentSignerCurrent(issuer);
-            String dsAppId = issuer.getMdocDsAppId();
-            String dsRefId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
-            log.info("Signing VC API mdoc with issuer KeyManager DS appId={}, refId={}", dsAppId, dsRefId);
-            return mDocProcessor.signMSO(mso, dsAppId, dsRefId, MDOC_DS_SIGN_ALGORITHM);
+            MdocDsKeyMaterial keyMaterial = mdocPkiService.getDocumentSignerKeyMaterial(issuer);
+            log.info("Signing VC API mdoc with issuer KeyManager DS subject={}",
+                    keyMaterial.certificate().getSubjectX500Principal().getName());
+            return mDocProcessor.signMSOWithLocalDs(mso, keyMaterial, mdocLocalDsCoseSigner);
         }
         if (!allowPropertyDs) {
             throw new CertifyException(ErrorConstants.MDOC_ISSUER_DS_NOT_CONFIGURED,

@@ -19,7 +19,6 @@ import io.mosip.certify.core.exception.CertifyException;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1Sequence;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -33,10 +32,14 @@ import java.util.List;
 /**
  * Builds ISO/IEC 18013-5 aligned COSE_Sign1 (issuerAuth) using a local Document Signer key,
  * embedding the DS certificate in the unprotected {@code x5chain} header (label 33).
+ * <p>
+ * The {@code payload} argument must already be the CBOR encoding of
+ * {@code MobileSecurityObjectBytes = #6.24(bstr .cbor MobileSecurityObject)}
+ * (see {@link io.mosip.certify.utils.MDocProcessor#encodeMsoAsCosePayload}).
+ * The produced COSE_Sign1 is untagged (not CBOR tag 18).
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
 public class MdocLocalDsCoseSigner {
 
     private static final int COSE_ALG_LABEL = 1;
@@ -46,23 +49,23 @@ public class MdocLocalDsCoseSigner {
     private static final String SIG_CONTEXT = "Signature1";
 
     /**
-     * Signs MSO CBOR bytes as COSE_Sign1 with ES256 and x5chain.
+     * Signs MobileSecurityObjectBytes as untagged COSE_Sign1 with ES256 and x5chain.
      *
-     * @param msoCbor     CBOR-encoded Mobile Security Object (payload)
-     * @param keyMaterial Document Signer private key + certificate
-     * @return CBOR-encoded COSE_Sign1 bytes
+     * @param msoPayloadBytes CBOR-encoded {@code #6.24(bstr .cbor MSO)} (COSE payload bytes)
+     * @param keyMaterial     Document Signer private key + certificate
+     * @return CBOR-encoded untagged COSE_Sign1 bytes
      */
-    public byte[] sign(byte[] msoCbor, MdocDsKeyMaterial keyMaterial) {
+    public byte[] sign(byte[] msoPayloadBytes, MdocDsKeyMaterial keyMaterial) {
         try {
             byte[] protectedHeader = encodeProtectedHeader();
             Map unprotectedHeader = buildUnprotectedHeader(keyMaterial.certificate());
-            byte[] toBeSigned = buildSigStructure(protectedHeader, msoCbor);
+            byte[] toBeSigned = buildSigStructure(protectedHeader, msoPayloadBytes);
             byte[] signature = signEs256(toBeSigned, keyMaterial.privateKey());
 
             Array coseSign1 = new Array();
             coseSign1.add(new ByteString(protectedHeader));
             coseSign1.add(unprotectedHeader);
-            coseSign1.add(new ByteString(msoCbor));
+            coseSign1.add(new ByteString(msoPayloadBytes));
             coseSign1.add(new ByteString(signature));
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();

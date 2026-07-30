@@ -11,6 +11,8 @@ import java.util.*;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.mdoc.MdocDsKeyMaterial;
+import io.mosip.certify.mdoc.MdocLocalDsCoseSigner;
 import io.mosip.certify.utils.MDocProcessor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -35,6 +37,9 @@ public class MDocCredential extends Credential {
 
     @Autowired
     private MDocProcessor mDocProcessor;
+
+    @Autowired(required = false)
+    private MdocLocalDsCoseSigner mdocLocalDsCoseSigner;
 
     public MDocCredential(VCFormatter vcFormatter, SignatureService signatureService) {
         super(vcFormatter, signatureService);
@@ -61,32 +66,56 @@ public class MDocCredential extends Credential {
     @Override
     public VCResult<?> addProof(String vcToSign, String headers, String signAlgorithm, String appID, String refID, String didUrl, String signatureCryptoSuite) {
         try {
-            VCResult<String> vcResult = new VCResult<>();
-
-            // Parse the input mDoc JSON
-            Map<String, Object> mDocJson = objectMapper.readValue(vcToSign, Map.class);
-            Map<String, Object> saltedNamespaces = MDocProcessor.addRandomSalts(mDocJson);
-            Map<String, Map<Integer, byte[]>> namespaceDigests = new HashMap<>();
-            Map<String, Object> taggedNamespaces = MDocProcessor.calculateDigests(saltedNamespaces, namespaceDigests);
-
-            // Create Mobile Security Object (MSO)
-            Map<String, Object> mso = mDocProcessor.createMobileSecurityObject(mDocJson, namespaceDigests);
-            byte[] signedMSO = mDocProcessor.signMSO(mso, appID, refID, signAlgorithm);
-            Map<String, Object> issuerSigned = MDocProcessor.createIssuerSignedStructure(taggedNamespaces, signedMSO);
-            Map<String, Object> mDocSignedCredential = new HashMap<>();
-            mDocSignedCredential.put(Constants.DOCTYPE, mso.get(Constants.DOCTYPE));
-            mDocSignedCredential.put("issuerSigned", issuerSigned);
-            // Encode to CBOR, then to Base64
-            byte[] cborIssuerSigned = MDocProcessor.encodeToCBOR(mDocSignedCredential);
-            String base64UrlCredential = Base64.getUrlEncoder().withoutPadding().encodeToString(cborIssuerSigned);
-
-            vcResult.setCredential(base64UrlCredential);
-            vcResult.setFormat(VCFormats.MSO_MDOC);
-            return vcResult;
-
+            return buildSignedCredential(vcToSign, mso -> mDocProcessor.signMSO(mso, appID, refID, signAlgorithm));
         } catch (Exception e) {
             log.error("Error adding proof to mDoc: {}", e.getMessage(), e);
             throw new CertifyException("MDOC_PROOF_FAILED", "Failed to add proof to mDoc", e);
         }
+    }
+
+    /**
+     * Signs with an explicit Document Signer key/cert (IACA-issued), used by OID4VCI after
+     * {@code MdocPkiService.getDocumentSignerKeyMaterial}.
+     */
+    public VCResult<?> addProofWithLocalDs(String vcToSign, MdocDsKeyMaterial keyMaterial) {
+        if (mdocLocalDsCoseSigner == null) {
+            throw new CertifyException("MDOC_PROOF_FAILED",
+                    "Local Document Signer COSE signer is not available");
+        }
+        try {
+            return buildSignedCredential(vcToSign,
+                    mso -> mDocProcessor.signMSOWithLocalDs(mso, keyMaterial, mdocLocalDsCoseSigner));
+        } catch (Exception e) {
+            log.error("Error adding proof to mDoc with local DS: {}", e.getMessage(), e);
+            throw new CertifyException("MDOC_PROOF_FAILED", "Failed to add proof to mDoc", e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface MsoSigner {
+        byte[] sign(Map<String, Object> mso) throws Exception;
+    }
+
+    private VCResult<?> buildSignedCredential(String vcToSign, MsoSigner signer) throws Exception {
+        VCResult<String> vcResult = new VCResult<>();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> mDocJson = objectMapper.readValue(vcToSign, Map.class);
+        Map<String, Object> saltedNamespaces = MDocProcessor.addRandomSalts(mDocJson);
+        Map<String, Map<Integer, byte[]>> namespaceDigests = new HashMap<>();
+        Map<String, Object> taggedNamespaces = MDocProcessor.calculateDigests(saltedNamespaces, namespaceDigests);
+
+        Map<String, Object> mso = mDocProcessor.createMobileSecurityObject(mDocJson, namespaceDigests);
+        byte[] signedMSO = signer.sign(mso);
+        Map<String, Object> issuerSigned = MDocProcessor.createIssuerSignedStructure(taggedNamespaces, signedMSO);
+        Map<String, Object> mDocSignedCredential = new HashMap<>();
+        mDocSignedCredential.put(Constants.DOCTYPE, mso.get(Constants.DOCTYPE));
+        mDocSignedCredential.put("issuerSigned", issuerSigned);
+        byte[] cborIssuerSigned = MDocProcessor.encodeToCBOR(mDocSignedCredential);
+        String base64UrlCredential = Base64.getUrlEncoder().withoutPadding().encodeToString(cborIssuerSigned);
+
+        vcResult.setCredential(base64UrlCredential);
+        vcResult.setFormat(VCFormats.MSO_MDOC);
+        return vcResult;
     }
 }

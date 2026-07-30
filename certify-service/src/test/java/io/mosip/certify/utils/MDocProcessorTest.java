@@ -8,21 +8,33 @@ import io.mosip.certify.config.MDocConfig;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.exception.CertifyException;
-import io.mosip.kernel.signature.dto.CoseSignRequestDto;
-import io.mosip.kernel.signature.dto.CoseSignResponseDto;
-import io.mosip.kernel.signature.service.CoseSignatureService;
+import io.mosip.certify.mdoc.MdocDsKeyMaterial;
+import io.mosip.certify.mdoc.MdocLocalDsCoseSigner;
+import io.mosip.kernel.core.keymanager.model.CertificateEntry;
+import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateResponseDto;
+import io.mosip.kernel.keymanagerservice.dto.SignatureCertificate;
+import io.mosip.kernel.keymanagerservice.service.KeymanagerService;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.cert.X509Certificate;
+import java.util.Date;
 import java.util.*;
 import java.util.Map;
 
@@ -49,7 +61,10 @@ public class MDocProcessorTest {
     private MDocConfig mDocConfig;
 
     @Mock
-    private CoseSignatureService coseSignatureService;
+    private KeymanagerService keymanagerService;
+
+    @Mock
+    private MdocLocalDsCoseSigner mdocLocalDsCoseSigner;
 
     @InjectMocks
     private MDocProcessor mDocProcessor;
@@ -669,7 +684,7 @@ public class MDocProcessorTest {
     }
 
     @Test
-    public void createMobileSecurityObject_ValidityInfo_PreservesValues() throws Exception {
+    public void createMobileSecurityObject_ValidityInfo_UsesTdatesAndSigned() throws Exception {
         Map<String, Object> mDocJson = new HashMap<>();
         mDocJson.put("_docType", "org.test.doc");
         mDocJson.put("_holderId", createTestDidJwk());
@@ -684,8 +699,54 @@ public class MDocProcessorTest {
         Map<String, Object> result = mDocProcessor.createMobileSecurityObject(mDocJson, new HashMap<>());
 
         Map<String, Object> resultValidity = (Map<String, Object>) result.get("validityInfo");
-        assertEquals("ValidFrom should match", validFrom, resultValidity.get(VCDM2Constants.VALID_FROM));
-        assertEquals("ValidUntil should match", validUntil, resultValidity.get(VCDM2Constants.VALID_UNTIL));
+        assertNotNull("Must have signed", resultValidity.get(Constants.VALIDITY_SIGNED));
+        assertTdate(resultValidity.get(Constants.VALIDITY_SIGNED), null);
+        assertTdate(resultValidity.get(VCDM2Constants.VALID_FROM), validFrom);
+        assertTdate(resultValidity.get(VCDM2Constants.VALID_UNTIL), validUntil);
+    }
+
+    @Test
+    public void encodeMsoAsCosePayload_WrapsWithTag24() throws Exception {
+        Map<String, Object> mso = new HashMap<>();
+        mso.put("version", "1.0");
+        mso.put("digestAlgorithm", "SHA-256");
+
+        byte[] payload = MDocProcessor.encodeMsoAsCosePayload(mso);
+
+        DataItem decoded = new CborDecoder(new ByteArrayInputStream(payload)).decode().get(0);
+        assertTrue("Payload must be ByteString", decoded instanceof ByteString);
+        assertTrue("Must have CBOR tag 24", decoded.hasTag());
+        assertEquals("Must be #6.24", Constants.CBOR_TAG_ENCODED_CBOR, decoded.getTag().getValue());
+
+        byte[] embedded = ((ByteString) decoded).getBytes();
+        DataItem msoItem = new CborDecoder(new ByteArrayInputStream(embedded)).decode().get(0);
+        assertTrue("Embedded value must be MSO map", msoItem instanceof co.nstant.in.cbor.model.Map);
+    }
+
+    @Test
+    public void encodeToCBOR_ValidityInfo_EmitsTdateTag0() throws Exception {
+        Map<String, Object> mDocJson = new HashMap<>();
+        mDocJson.put("_docType", "org.test.doc");
+        mDocJson.put("_holderId", createTestDidJwk());
+        Map<String, Object> validityInfo = new HashMap<>();
+        validityInfo.put(VCDM2Constants.VALID_FROM, "2024-01-01T00:00:00.000Z");
+        validityInfo.put(VCDM2Constants.VALID_UNTIL, "2025-01-01T00:00:00.000Z");
+        mDocJson.put("validityInfo", validityInfo);
+
+        Map<String, Object> mso = mDocProcessor.createMobileSecurityObject(mDocJson, new HashMap<>());
+        byte[] encoded = MDocProcessor.encodeToCBOR(mso);
+
+        co.nstant.in.cbor.model.Map msoMap =
+                (co.nstant.in.cbor.model.Map) new CborDecoder(new ByteArrayInputStream(encoded)).decode().get(0);
+        co.nstant.in.cbor.model.Map validity =
+                (co.nstant.in.cbor.model.Map) msoMap.get(new UnicodeString(Constants.VALIDITY_INFO));
+
+        for (String key : List.of(Constants.VALIDITY_SIGNED, VCDM2Constants.VALID_FROM, VCDM2Constants.VALID_UNTIL)) {
+            DataItem dateItem = validity.get(new UnicodeString(key));
+            assertTrue(key + " must be UnicodeString", dateItem instanceof UnicodeString);
+            assertTrue(key + " must have tdate tag 0", dateItem.hasTag());
+            assertEquals(key + " tag", Constants.CBOR_TAG_TDATE, dateItem.getTag().getValue());
+        }
     }
 
     // ==================== COSE Signing Tests ====================
@@ -696,27 +757,48 @@ public class MDocProcessorTest {
         mso.put("version", "1.0");
         mso.put("digestAlgorithm", "SHA-256");
 
-        // Mock the COSE signature service response
-        String mockHexSignedData = "d2844341a10126404c504143204f50454e4141";
+        KeyPair keyPair = KeyPairGenerator.getInstance("EC").generateKeyPair();
+        X509Certificate certificate = createSelfSignedCertificate(keyPair, "CN=DS-test,O=Inji,C=IN");
+        SignatureCertificate signatureCertificate = new SignatureCertificate(
+                "alias",
+                new CertificateEntry<>(new X509Certificate[]{certificate}, keyPair.getPrivate()),
+                null,
+                null,
+                "BC",
+                "uid");
+        when(keymanagerService.getSignatureCertificate(eq("testApp"), eq(Optional.of("testRef")), anyString()))
+                .thenReturn(signatureCertificate);
 
-        CoseSignResponseDto mockResponse = new CoseSignResponseDto();
-        mockResponse.setSignedData(mockHexSignedData);
+        KeyPairGenerateResponseDto certificateResponse = new KeyPairGenerateResponseDto();
+        certificateResponse.setCertificate(toPem(certificate));
+        when(keymanagerService.getCertificate(eq("testApp"), eq(Optional.of("testRef"))))
+                .thenReturn(certificateResponse);
 
-        when(coseSignatureService.coseSign1(any(CoseSignRequestDto.class)))
-                .thenReturn(mockResponse);
+        byte[] mockCose = createMockCoseSign1();
+        when(mdocLocalDsCoseSigner.sign(any(byte[].class), any(MdocDsKeyMaterial.class))).thenReturn(mockCose);
 
         byte[] result = mDocProcessor.signMSO(mso, "testApp", "testRef", "ES256");
 
         assertNotNull("Result should not be null", result);
         assertTrue("Result should have data", result.length > 0);
 
-        // Verify service was called with correct parameters
-        ArgumentCaptor<CoseSignRequestDto> captor = ArgumentCaptor.forClass(CoseSignRequestDto.class);
-        verify(coseSignatureService).coseSign1(captor.capture());
-        CoseSignRequestDto requestDto = captor.getValue();
-        assertEquals("Application ID should match", "testApp", requestDto.getApplicationId());
-        assertEquals("Reference ID should match", "testRef", requestDto.getReferenceId());
-        assertEquals("Algorithm should match", "ES256", requestDto.getAlgorithm());
+        DataItem cose = new CborDecoder(new ByteArrayInputStream(result)).decode().get(0);
+        assertFalse("issuerAuth COSE_Sign1 must be untagged", cose.hasTag());
+        assertTrue(cose instanceof Array);
+        assertEquals(4, ((Array) cose).getDataItems().size());
+
+        verify(keymanagerService).getSignatureCertificate(eq("testApp"), eq(Optional.of("testRef")), anyString());
+        verify(keymanagerService).getCertificate(eq("testApp"), eq(Optional.of("testRef")));
+
+        org.mockito.ArgumentCaptor<byte[]> payloadCaptor = org.mockito.ArgumentCaptor.forClass(byte[].class);
+        org.mockito.ArgumentCaptor<MdocDsKeyMaterial> keyCaptor = org.mockito.ArgumentCaptor.forClass(MdocDsKeyMaterial.class);
+        verify(mdocLocalDsCoseSigner).sign(payloadCaptor.capture(), keyCaptor.capture());
+
+        byte[] sentPayload = payloadCaptor.getValue();
+        DataItem payloadItem = new CborDecoder(new ByteArrayInputStream(sentPayload)).decode().get(0);
+        assertTrue(payloadItem.hasTag());
+        assertEquals(Constants.CBOR_TAG_ENCODED_CBOR, payloadItem.getTag().getValue());
+        assertEquals(certificate, keyCaptor.getValue().certificate());
     }
 
     @Test(expected = CertifyException.class)
@@ -724,7 +806,7 @@ public class MDocProcessorTest {
         Map<String, Object> mso = new HashMap<>();
         mso.put("version", "1.0");
 
-        when(coseSignatureService.coseSign1(any(CoseSignRequestDto.class)))
+        when(keymanagerService.getSignatureCertificate(eq("app"), eq(Optional.of("ref")), anyString()))
                 .thenThrow(new CertifyException("Signing failed"));
 
         mDocProcessor.signMSO(mso, "app", "ref", "ES256");
@@ -1014,13 +1096,17 @@ public class MDocProcessorTest {
         assertTrue("Must have deviceKeyInfo", mso.containsKey("deviceKeyInfo"));
         assertTrue("Must have docType", mso.containsKey(Constants.DOCTYPE));
         assertTrue("Must have validityInfo", mso.containsKey("validityInfo"));
+
+        Map<String, Object> validity = (Map<String, Object>) mso.get("validityInfo");
+        assertTrue("Must have signed", validity.containsKey(Constants.VALIDITY_SIGNED));
+        assertTrue("Must have validFrom", validity.containsKey(VCDM2Constants.VALID_FROM));
+        assertTrue("Must have validUntil", validity.containsKey(VCDM2Constants.VALID_UNTIL));
     }
 
     @Test
     public void iso18013_IssuerSignedItem_Structure() throws Exception {
         Map<String, Object> element = createSaltedElement(0, "family_name", "Doe");
 
-        // Verify element has required fields
         assertTrue("Must have digestID", element.containsKey("digestID"));
         assertTrue("Must have random", element.containsKey("random"));
         assertTrue("Must have elementIdentifier", element.containsKey("elementIdentifier"));
@@ -1030,7 +1116,35 @@ public class MDocProcessorTest {
         assertEquals("Random must be 24 bytes", 24, random.length);
     }
 
+    @Test
+    public void createIssuerSignedStructure_StripsCoseSign1Tag18() throws Exception {
+        Map<String, Object> processedNamespaces = new HashMap<>();
+        processedNamespaces.put("org.iso.18013.5.1", new ArrayList<>());
+
+        byte[] taggedCose = createMockCoseSign1Tagged();
+        DataItem before = new CborDecoder(new ByteArrayInputStream(taggedCose)).decode().get(0);
+        assertTrue(before.hasTag());
+        assertEquals(Constants.CBOR_TAG_COSE_SIGN1, before.getTag().getValue());
+
+        Map<String, Object> issuerSigned = MDocProcessor.createIssuerSignedStructure(processedNamespaces, taggedCose);
+        DataItem issuerAuth = (DataItem) issuerSigned.get("issuerAuth");
+        assertFalse("issuerAuth must be untagged COSE_Sign1", issuerAuth.hasTag());
+        assertTrue(issuerAuth instanceof Array);
+        assertEquals(4, ((Array) issuerAuth).getDataItems().size());
+    }
+
     // ==================== Helper Methods ====================
+
+    @SuppressWarnings("unchecked")
+    private void assertTdate(Object value, String expectedDateTime) {
+        assertTrue("tdate marker must be a map", value instanceof Map);
+        Map<String, Object> tagged = (Map<String, Object>) value;
+        assertEquals(Constants.CBOR_TAG_TDATE, tagged.get(Constants.__CBOR_TAG));
+        assertTrue(tagged.get(Constants.__CBOR_VALUE) instanceof String);
+        if (expectedDateTime != null) {
+            assertEquals(expectedDateTime, tagged.get(Constants.__CBOR_VALUE));
+        }
+    }
 
     private Map<String, Object> createTestMDocJson() {
         Map<String, Object> mDocJson = new HashMap<>();
@@ -1067,23 +1181,6 @@ public class MDocProcessorTest {
         return "did:jwk:" + Base64.getUrlEncoder().encodeToString(jwkJson.getBytes());
     }
 
-    private String createFullmDLTemplate() {
-        return "{"
-                + "\"docType\": \"org.iso.18013.5.1.mDL\","
-                + "\"validityInfo\": {"
-                + "  \"validFrom\": \"${_validFrom}\","
-                + "  \"validUntil\": \"${_validUntil}\""
-                + "},"
-                + "\"nameSpaces\": {"
-                + "  \"org.iso.18013.5.1\": ["
-                + "    {\"digestID\": 0, \"elementIdentifier\": \"family_name\", \"elementValue\": \"Doe\"},"
-                + "    {\"digestID\": 1, \"elementIdentifier\": \"given_name\", \"elementValue\": \"John\"},"
-                + "    {\"digestID\": 2, \"elementIdentifier\": \"birth_date\", \"elementValue\": \"1990-08-25\"}"
-                + "  ]"
-                + "}"
-                + "}";
-    }
-
     private byte[] createMockCoseSign1() throws Exception {
         co.nstant.in.cbor.model.Array coseArray = new co.nstant.in.cbor.model.Array();
         coseArray.add(new ByteString(new byte[]{(byte)0xa1, 0x01, 0x26}));
@@ -1096,12 +1193,40 @@ public class MDocProcessorTest {
         return baos.toByteArray();
     }
 
+    private byte[] createMockCoseSign1Tagged() throws Exception {
+        co.nstant.in.cbor.model.Array coseArray = new co.nstant.in.cbor.model.Array();
+        coseArray.add(new ByteString(new byte[]{(byte)0xa1, 0x01, 0x26}));
+        coseArray.add(new co.nstant.in.cbor.model.Map());
+        coseArray.add(new ByteString(new byte[]{1, 2, 3, 4}));
+        coseArray.add(new ByteString(new byte[]{5, 6, 7, 8}));
+        coseArray.setTag(Constants.CBOR_TAG_COSE_SIGN1);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        new CborEncoder(baos).encode(coseArray);
+        return baos.toByteArray();
+    }
+
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
             sb.append(String.format("%02x", b));
         }
         return sb.toString();
+    }
+
+    private static X509Certificate createSelfSignedCertificate(KeyPair keyPair, String dn) throws Exception {
+        X500Name subject = new X500Name(dn);
+        Date notBefore = new Date(System.currentTimeMillis() - 60_000);
+        Date notAfter = new Date(System.currentTimeMillis() + 365L * 24 * 60 * 60 * 1000);
+        JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                subject, BigInteger.valueOf(System.currentTimeMillis()), notBefore, notAfter, subject, keyPair.getPublic());
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256withECDSA").build(keyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
+    private static String toPem(X509Certificate certificate) throws Exception {
+        String encoded = Base64.getMimeEncoder(64, new byte[]{'\n'}).encodeToString(certificate.getEncoded());
+        return "-----BEGIN CERTIFICATE-----\n" + encoded + "\n-----END CERTIFICATE-----";
     }
 
 

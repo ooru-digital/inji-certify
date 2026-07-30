@@ -29,10 +29,12 @@ import io.mosip.certify.core.spi.VCIssuanceService;
 import io.mosip.certify.core.util.SecurityHelperService;
 import io.mosip.certify.credential.Credential;
 import io.mosip.certify.credential.CredentialFactory;
+import io.mosip.certify.credential.MDocCredential;
 import io.mosip.certify.core.dto.CredentialStatusDetail;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocDsKeyMaterial;
 import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.utils.CredentialUtils;
 import io.mosip.certify.utils.DIDDocumentUtil;
@@ -321,16 +323,22 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             String proofAlgorithm = vcFormatter.getProofAlgorithm(templateName);
             String appId = vcFormatter.getAppID(templateName);
             String refId = vcFormatter.getRefID(templateName);
+            VCResult<?> result;
             // mso_mdoc must be signed with issuer Document Signer (EC P-256), not LDP DID keys.
             if (VCFormats.MSO_MDOC.equals(format) && StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
-                mdocPkiService.ensureDocumentSignerCurrent(issuer);
-                appId = issuer.getMdocDsAppId();
-                refId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
-                proofAlgorithm = "ES256";
-                log.info("Signing OID4VCI mdoc with issuer DS appId={}, refId={}", appId, refId);
+                MdocDsKeyMaterial keyMaterial = mdocPkiService.getDocumentSignerKeyMaterial(issuer);
+                log.info("Signing OID4VCI mdoc with issuer DS subject={}, issuer={}",
+                        keyMaterial.certificate().getSubjectX500Principal().getName(),
+                        keyMaterial.certificate().getIssuerX500Principal().getName());
+                if (!(cred instanceof MDocCredential mDocCredential)) {
+                    throw new CertifyException(ErrorConstants.VC_ISSUANCE_FAILED,
+                            "Expected MDocCredential handler for mso_mdoc format");
+                }
+                result = mDocCredential.addProofWithLocalDs(unsignedCredential, keyMaterial);
+            } else {
+                result = cred.addProof(unsignedCredential, "", proofAlgorithm, appId, refId,
+                        issuer.getDidUrl(), vcFormatter.getSignatureCryptoSuite(templateName));
             }
-            VCResult<?> result = cred.addProof(unsignedCredential, "", proofAlgorithm, appId, refId,
-                    issuer.getDidUrl(), vcFormatter.getSignatureCryptoSuite(templateName));
 
             jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
             return result;

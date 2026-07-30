@@ -29,6 +29,7 @@ import java.util.Base64;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -65,6 +66,7 @@ public class MdocLocalDsCoseSignerTest {
         List<DataItem> decoded = MdocLocalDsCoseSigner.decodeCoseSign1(coseBytes);
         assertEquals(1, decoded.size());
         Array coseSign1 = (Array) decoded.get(0);
+        assertFalse("COSE_Sign1 must be untagged", coseSign1.hasTag());
         assertEquals(4, coseSign1.getDataItems().size());
 
         ByteString protectedHeader = (ByteString) coseSign1.getDataItems().get(0);
