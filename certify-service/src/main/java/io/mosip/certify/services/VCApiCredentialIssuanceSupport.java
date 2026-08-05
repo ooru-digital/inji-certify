@@ -1,0 +1,332 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+package io.mosip.certify.services;
+
+import foundation.identity.jsonld.JsonLDObject;
+import io.mosip.certify.api.dto.VCResult;
+import io.mosip.certify.core.constants.Constants;
+import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.VCFormats;
+import io.mosip.certify.core.constants.VCDM2Constants;
+import io.mosip.certify.core.constants.VCDMConstants;
+import io.mosip.certify.core.constants.VCIErrorConstants;
+import io.mosip.certify.core.dto.CredentialConfigurationDTO;
+import io.mosip.certify.core.dto.CredentialStatusDetail;
+import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.spi.CredentialLedgerService;
+import io.mosip.certify.credential.Credential;
+import io.mosip.certify.credential.CredentialFactory;
+import io.mosip.certify.utils.LedgerUtils;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang3.StringUtils;
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+@Slf4j
+@Component
+@ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
+public class VCApiCredentialIssuanceSupport {
+
+    private static final String CONTEXT = "@context";
+    private static final String ISSUER = "issuer";
+    private static final String CREDENTIAL_SUBJECT = "credentialSubject";
+
+    @Autowired
+    private CredentialFactory credentialFactory;
+
+    @Autowired
+    private StatusListCredentialService statusListCredentialService;
+
+    @Autowired
+    private CredentialLedgerService credentialLedgerService;
+
+    @Autowired
+    private LedgerUtils ledgerUtils;
+
+    @Value("#{${mosip.certify.issuer.ledger-enabled:true}}")
+    private boolean isLedgerEnabled;
+
+    public VCApiIssueResult issueValidatedCredential(Map<String, Object> credential,
+                                                     CredentialConfigurationDTO config) {
+        validateNoProof(credential);
+        validateFormat(config);
+        validateVcdm2AndMatchConfig(credential, config);
+        validateAgainstVcTemplate(credential, config);
+
+        JSONObject jsonObject = new JSONObject(credential);
+        maybeAddCredentialStatus(jsonObject, config);
+
+        Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
+                .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
+
+        try {
+            String unsignedCredential = jsonObject.toString();
+            String issuanceTime = resolveIssuanceTime(jsonObject);
+
+            if (isLedgerEnabled) {
+                storeLedger(jsonObject, config, issuanceTime);
+            }
+
+            String didUrl = requireNonBlank(config.getDidUrl(), "didUrl");
+            String appId = requireNonBlank(config.getKeyManagerAppId(), "keyManagerAppId");
+            String refId = config.getKeyManagerRefId() != null ? config.getKeyManagerRefId() : "";
+            String signAlgorithm = requireNonBlank(config.getSignatureAlgo(), "signatureAlgo");
+            String cryptoSuite = requireNonBlank(config.getSignatureCryptoSuite(), "signatureCryptoSuite");
+
+            VCResult<?> result = cred.addProof(unsignedCredential, "", signAlgorithm, appId, refId, didUrl, cryptoSuite);
+            return new VCApiIssueResult((JsonLDObject) result.getCredential());
+        } catch (JSONException e) {
+            log.error("VC API credential signing failed: {}", e.getMessage(), e);
+            throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
+                    "Invalid JSON data encountered during credential issuance");
+        }
+    }
+
+    private void validateNoProof(Map<String, Object> credential) {
+        if (credential.containsKey(VCDMConstants.PROOF)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential must not include an existing proof");
+        }
+    }
+
+    private void validateFormat(CredentialConfigurationDTO config) {
+        if (!VCFormats.LDP_VC.equals(config.getCredentialFormat())) {
+            throw new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT,
+                    "VC API supports only ldp_vc credential format");
+        }
+    }
+
+    private void validateVcdm2AndMatchConfig(Map<String, Object> credential, CredentialConfigurationDTO config) {
+        List<String> requestContexts = toStringList(credential.get(CONTEXT), CONTEXT);
+        if (!requestContexts.contains(VCDM2Constants.URL)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential @context must include VCDM 2.0 URL: " + VCDM2Constants.URL);
+        }
+
+        List<String> configContexts = config.getContextURLs() != null ? config.getContextURLs() : List.of();
+        if (!sameStringSet(requestContexts, configContexts)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential @context does not match onboarded credential configuration");
+        }
+
+        List<String> requestTypes = toStringList(credential.get(Constants.TYPE), Constants.TYPE);
+        List<String> configTypes = config.getCredentialTypes() != null ? config.getCredentialTypes() : List.of();
+        if (configTypes.isEmpty() || !sameStringSet(requestTypes, configTypes)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential type does not match onboarded credential configuration");
+        }
+
+        String requestIssuer = extractIssuerId(credential.get(ISSUER));
+        String configIssuer = config.getDidUrl();
+        if (StringUtils.isBlank(configIssuer) || !Objects.equals(requestIssuer, configIssuer)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential issuer does not match onboarded credential configuration");
+        }
+    }
+
+    /**
+     * Validates request {@code credentialSubject} against the onboarded {@code vcTemplate}.
+     * Request subject keys must include every template subject key. Extra keys are rejected,
+     * except JSON-LD {@code id} ({@code @id}), which is an optional subject identifier and
+     * may be present even when omitted from the Velocity template.
+     */
+    private void validateAgainstVcTemplate(Map<String, Object> credential, CredentialConfigurationDTO config) {
+        JSONObject template = parseVcTemplate(config.getVcTemplate());
+        if (!template.has(CREDENTIAL_SUBJECT) || !(template.get(CREDENTIAL_SUBJECT) instanceof JSONObject)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Onboarded vcTemplate must define credentialSubject for W3C VC API validation");
+        }
+
+        JSONObject templateSubject = template.getJSONObject(CREDENTIAL_SUBJECT);
+        Set<String> expectedKeys = new HashSet<>(templateSubject.keySet());
+        if (expectedKeys.isEmpty()) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Onboarded vcTemplate credentialSubject must define at least one field");
+        }
+
+        Object requestSubjectObj = credential.get(CREDENTIAL_SUBJECT);
+        if (!(requestSubjectObj instanceof Map<?, ?> requestSubject) || requestSubject.isEmpty()) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Missing or empty credentialSubject");
+        }
+
+        Set<String> requestKeys = new HashSet<>();
+        for (Object key : requestSubject.keySet()) {
+            if (key != null) {
+                requestKeys.add(key.toString());
+            }
+        }
+
+        Set<String> missing = new HashSet<>(expectedKeys);
+        missing.removeAll(requestKeys);
+        if (!missing.isEmpty()) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "credentialSubject is missing fields required by onboarded vcTemplate: " + missing);
+        }
+
+        Set<String> unexpected = new HashSet<>(requestKeys);
+        unexpected.removeAll(expectedKeys);
+        // JSON-LD subject identifier (@id) is allowed even when not present in Velocity template.
+        unexpected.remove(VCDMConstants.ID);
+        if (!unexpected.isEmpty()) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "credentialSubject has fields not defined in onboarded vcTemplate: " + unexpected);
+        }
+    }
+
+    private JSONObject parseVcTemplate(String vcTemplate) {
+        if (StringUtils.isBlank(vcTemplate)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Onboarded credential configuration is missing vcTemplate required for W3C VC API validation");
+        }
+        String trimmed = vcTemplate.trim();
+        try {
+            if (trimmed.startsWith("{")) {
+                return new JSONObject(trimmed);
+            }
+            String decoded = new String(Base64.decodeBase64(trimmed), StandardCharsets.UTF_8).trim();
+            if (!decoded.startsWith("{")) {
+                throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                        "Onboarded vcTemplate is not valid JSON");
+            }
+            return new JSONObject(decoded);
+        } catch (CertifyException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Unable to parse onboarded vcTemplate: " + e.getMessage());
+        }
+    }
+
+    private boolean sameStringSet(List<String> left, List<String> right) {
+        return new HashSet<>(left).equals(new HashSet<>(right));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> toStringList(Object value, String fieldName) {
+        if (value == null) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Missing required field: " + fieldName);
+        }
+        if (value instanceof String s) {
+            return List.of(s);
+        }
+        if (value instanceof Collection<?> collection) {
+            List<String> result = new ArrayList<>();
+            for (Object item : collection) {
+                if (item == null) {
+                    continue;
+                }
+                result.add(item.toString());
+            }
+            if (result.isEmpty()) {
+                throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Empty required field: " + fieldName);
+            }
+            return result;
+        }
+        throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Invalid type for field: " + fieldName);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String extractIssuerId(Object issuer) {
+        if (issuer == null) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Missing required field: issuer");
+        }
+        if (issuer instanceof String s) {
+            if (StringUtils.isBlank(s)) {
+                throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Blank issuer");
+            }
+            return s.trim();
+        }
+        if (issuer instanceof Map<?, ?> map) {
+            Object id = map.get("id");
+            if (id == null || StringUtils.isBlank(id.toString())) {
+                throw new CertifyException(ErrorConstants.INVALID_REQUEST, "issuer.id is required when issuer is an object");
+            }
+            return id.toString().trim();
+        }
+        throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Invalid issuer format");
+    }
+
+    private void maybeAddCredentialStatus(JSONObject jsonObject, CredentialConfigurationDTO config) {
+        List<String> purposes = config.getCredentialStatusPurposes();
+        if (purposes == null || purposes.isEmpty()) {
+            return;
+        }
+        if (!isLedgerEnabled) {
+            log.warn("Ledger feature is disabled while revocation is enabled for config {}",
+                    config.getCredentialConfigKeyId());
+        }
+        statusListCredentialService.addCredentialStatus(jsonObject, purposes.getFirst());
+    }
+
+    private String resolveIssuanceTime(JSONObject jsonObject) {
+        if (jsonObject.has(VCDM2Constants.VALID_FROM)
+                && StringUtils.isNotBlank(jsonObject.optString(VCDM2Constants.VALID_FROM))) {
+            return jsonObject.getString(VCDM2Constants.VALID_FROM);
+        }
+        return ZonedDateTime.now(ZoneOffset.UTC)
+                .format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
+    }
+
+    private void storeLedger(JSONObject jsonObject, CredentialConfigurationDTO config, String time) {
+        Map<String, Object> indexedAttributes = ledgerUtils.extractIndexedAttributes(jsonObject);
+        String credentialType = LedgerUtils.extractCredentialType(jsonObject);
+        String credentialId = jsonObject.has("id") ? jsonObject.optString("id", null) : null;
+        if (StringUtils.isBlank(credentialId)) {
+            credentialId = null;
+        }
+        CredentialStatusDetail credentialStatusDetail = ledgerUtils.extractCredentialStatusDetails(jsonObject);
+        LocalDateTime issuanceDate = parseIssuanceDateTime(time);
+        credentialLedgerService.storeLedgerEntry(credentialId, config.getDidUrl(), credentialType,
+                credentialStatusDetail, indexedAttributes, issuanceDate);
+        log.info("VC API ledger entry stored for credentialType: {}", credentialType);
+    }
+
+    private LocalDateTime parseIssuanceDateTime(String time) {
+        try {
+            return LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
+        } catch (Exception ignored) {
+            // Accept common VCDM ISO-8601 forms (with/without millis, with Z offset).
+            return java.time.Instant.parse(normalizeToInstant(time)).atZone(ZoneOffset.UTC).toLocalDateTime();
+        }
+    }
+
+    private String normalizeToInstant(String time) {
+        if (time.endsWith("Z") || time.contains("+") || time.matches(".*[+-]\\d{2}:\\d{2}$")) {
+            return time;
+        }
+        return time + "Z";
+    }
+
+    private String requireNonBlank(String value, String fieldName) {
+        if (StringUtils.isBlank(value)) {
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "Credential configuration missing required signing field: " + fieldName);
+        }
+        return value;
+    }
+
+    public record VCApiIssueResult(JsonLDObject verifiableCredential) {
+    }
+}

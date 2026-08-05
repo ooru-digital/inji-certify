@@ -1584,6 +1584,52 @@ paths:
       servers:
         - url: 'http://localhost:8090/v1/certify'
           description: Generated server url
+  /vc-api/credentials/issue:
+    post:
+      tags:
+        - W3C VC API
+      summary: Issue signed verifiable credential
+      description: |
+        W3C VC API issue endpoint. Caller sends a full unsigned VCDM 2.0 credential.
+        Certify loads the onboarded credential configuration from
+        `X-Credential-Configuration-Id`, validates `@context`, `type`, `issuer` and
+        `credentialSubject` keys against that config/`vcTemplate`, then signs with Key Manager.
+        Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`. Supports `ldp_vc` only.
+      operationId: vcApiIssueCredential
+      parameters:
+        - name: X-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Credential-Configuration-Id
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Active credential configuration key id (credentialConfigKeyId)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VCApiIssueRequest'
+      responses:
+        '201':
+          description: Signed verifiable credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCApiIssueResponse'
+        '400':
+          description: Invalid request or configuration mismatch
+        '401':
+          description: Missing or invalid API key
+        '404':
+          description: Unknown credential configuration id
+      servers:
+        - url: 'http://localhost:8090/v1/certify'
+          description: Generated server url
   /credentials/status:
     post:
       tags:
@@ -3219,3 +3265,37 @@ components:
           example: "abc123xyz"
       required:
         - c_nonce
+    VCApiIssueOptions:
+      type: object
+      description: Optional W3C issue options (proof hints). Config id is not taken from options.
+      properties:
+        type:
+          type: string
+        verificationMethod:
+          type: string
+        proofPurpose:
+          type: string
+        created:
+          type: string
+        challenge:
+          type: string
+        domain:
+          type: string
+    VCApiIssueRequest:
+      type: object
+      required:
+        - credential
+      properties:
+        credential:
+          type: object
+          additionalProperties: true
+          description: Full unsigned VCDM 2.0 Verifiable Credential (must not include proof)
+        options:
+          $ref: '#/components/schemas/VCApiIssueOptions'
+    VCApiIssueResponse:
+      type: object
+      properties:
+        verifiableCredential:
+          type: object
+          additionalProperties: true
+          description: Signed LDP VC including proof
