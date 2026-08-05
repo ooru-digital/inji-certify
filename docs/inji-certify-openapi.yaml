@@ -1594,6 +1594,7 @@ paths:
         Certify loads the onboarded credential configuration from
         `X-Credential-Configuration-Id`, validates `@context`, `type`, `issuer` and
         `credentialSubject` keys against that config/`vcTemplate`, then signs with Key Manager.
+        `options` may be omitted or empty; non-blank proof hints are rejected until supported.
         Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`. Supports `ldp_vc` only.
       operationId: vcApiIssueCredential
       parameters:
@@ -1627,6 +1628,12 @@ paths:
           description: Missing or invalid API key
         '404':
           description: Unknown credential configuration id
+        '500':
+          description: Credential issuance failed (signing, Key Manager, or status-list error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCError'
       servers:
         - url: 'http://localhost:8090/v1/certify'
           description: Generated server url
@@ -3267,20 +3274,31 @@ components:
         - c_nonce
     VCApiIssueOptions:
       type: object
-      description: Optional W3C issue options (proof hints). Config id is not taken from options.
+      description: |
+        Optional W3C issue options object for request-shape compatibility.
+        Must be omitted or empty in this release. Non-blank proof hints
+        (type, verificationMethod, proofPurpose, created, challenge, domain)
+        are rejected with 400 until Certify signing applies them.
+        Config id is not taken from options — use X-Credential-Configuration-Id.
       properties:
         type:
           type: string
+          description: Unsupported; non-blank values are rejected
         verificationMethod:
           type: string
+          description: Unsupported; non-blank values are rejected
         proofPurpose:
           type: string
+          description: Unsupported; non-blank values are rejected
         created:
           type: string
+          description: Unsupported; non-blank values are rejected
         challenge:
           type: string
+          description: Unsupported; non-blank values are rejected
         domain:
           type: string
+          description: Unsupported; non-blank values are rejected
     VCApiIssueRequest:
       type: object
       required:

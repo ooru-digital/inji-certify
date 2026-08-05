@@ -5,6 +5,7 @@ import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
+import io.mosip.certify.core.dto.VCApiIssueOptions;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
 import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
@@ -24,6 +25,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -85,6 +87,37 @@ public class VCApiIssuanceServiceTest {
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> vcApiIssuanceService.issue(request, "unknown-config"));
         assertEquals(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, ex.getErrorCode());
+    }
+
+    @Test
+    public void issue_withEmptyOptions_succeeds() throws Exception {
+        VCApiIssueRequest request = requestWithCredential();
+        request.setOptions(new VCApiIssueOptions());
+        CredentialConfigurationDTO config = ldpConfig();
+        when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
+
+        JsonLDObject signedVc = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        when(vcApiCredentialIssuanceSupport.issueValidatedCredential(eq(request.getCredential()), eq(config)))
+                .thenReturn(new VCApiCredentialIssuanceSupport.VCApiIssueResult(signedVc));
+
+        VCApiIssueResponse response = vcApiIssuanceService.issue(request, "farmer-credential");
+
+        assertNotNull(response.getVerifiableCredential());
+        verify(vcApiCredentialIssuanceSupport).issueValidatedCredential(any(), eq(config));
+    }
+
+    @Test
+    public void issue_withNonEmptyOptions_rejects() throws Exception {
+        VCApiIssueRequest request = requestWithCredential();
+        VCApiIssueOptions options = new VCApiIssueOptions();
+        options.setChallenge("nonce-123");
+        request.setOptions(options);
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> vcApiIssuanceService.issue(request, "farmer-credential"));
+        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+        verify(credentialConfigurationService, never()).getCredentialConfigurationById(any());
+        verify(vcApiCredentialIssuanceSupport, never()).issueValidatedCredential(any(), any());
     }
 
     private VCApiIssueRequest requestWithCredential() {

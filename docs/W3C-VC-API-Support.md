@@ -101,7 +101,10 @@ Content-Type: application/json
 }
 ```
 
-`options` is accepted for W3C shape compatibility (optional proof hints). Config id is **not**
+`options` may be omitted or `{}` for W3C request-shape compatibility. Proof hints
+(`challenge`, `domain`, `verificationMethod`, `type`, `proofPurpose`, `created`) are **not**
+applied by Certify signing in this phase — a non-empty value is rejected with `400` so clients
+do not receive a signed VC that silently omits requested proof fields. Config id is **not**
 taken from `options` — use `X-Credential-Configuration-Id`.
 
 `validFrom` / `validUntil`, when present, must use Certify’s UTC pattern:
@@ -131,6 +134,8 @@ taken from `options` — use `X-Credential-Configuration-Id`.
 | Missing / blank `X-Credential-Configuration-Id` | `400` |
 | Unknown / inactive config id | `404` / `400` |
 | `credential` missing or empty | `400` |
+| `options` present with any non-blank proof hint | `400` |
+| Malformed `validFrom` (not Certify UTC / parseable ISO-8601) | `400` |
 | `credential` already has `proof` | `400` |
 | Config `credentialFormat` ≠ `ldp_vc` | `400` |
 | `@context` does not include VCDM 2.0 URL | `400` |
@@ -212,7 +217,7 @@ sequenceDiagram
 
 ### Processing order
 
-```
+```text
 1. Authenticate API key
 2. Require X-Credential-Configuration-Id
 3. Reject credential with existing proof
@@ -234,7 +239,7 @@ the envelope, eSignet / OAuth holder proof, cNonce.
 
 ## 5. Package layout
 
-```
+```text
 certify-core/
   └── io/mosip/certify/core/dto/
         ├── VCApiIssueRequest.java

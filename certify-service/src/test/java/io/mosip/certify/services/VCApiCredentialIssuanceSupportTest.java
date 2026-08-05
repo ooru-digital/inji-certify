@@ -202,6 +202,20 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
+    public void issueValidatedCredential_throws_whenValidFromMalformed_withLedgerEnabled() {
+        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        CredentialConfigurationDTO config = ldpConfig();
+        Map<String, Object> credential = validCredential();
+        credential.put("validFrom", "not-a-timestamp");
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueValidatedCredential(credential, config));
+        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+        verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+        verify(credentialFactory, never()).getCredential(anyString());
+    }
+
+    @Test
     public void issueValidatedCredential_throws_whenTemplateMissing() {
         CredentialConfigurationDTO config = ldpConfig();
         config.setVcTemplate(null);

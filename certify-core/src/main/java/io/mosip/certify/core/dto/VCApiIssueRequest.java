@@ -23,7 +23,9 @@ public class VCApiIssueRequest {
     private Map<String, Object> credential;
 
     /**
-     * OPTIONAL. W3C issue options (proof hints). Config id is not taken from options.
+     * OPTIONAL. W3C issue options object for request-shape compatibility.
+     * Must be omitted or empty; proof hints are not applied in this release.
+     * Config id is not taken from options — use {@code X-Credential-Configuration-Id}.
      */
     private VCApiIssueOptions options;
 }

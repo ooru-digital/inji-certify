@@ -75,6 +75,9 @@ public class VCApiCredentialIssuanceSupport {
         validateAgainstVcTemplate(credential, config);
 
         JSONObject jsonObject = new JSONObject(credential);
+        // Validate timestamp before status-list / ledger / signing side effects.
+        LocalDateTime issuanceDate = parseIssuanceDateTime(resolveIssuanceTime(jsonObject));
+
         maybeAddCredentialStatus(jsonObject, config);
 
         Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
@@ -82,10 +85,9 @@ public class VCApiCredentialIssuanceSupport {
 
         try {
             String unsignedCredential = jsonObject.toString();
-            String issuanceTime = resolveIssuanceTime(jsonObject);
 
             if (isLedgerEnabled) {
-                storeLedger(jsonObject, config, issuanceTime);
+                storeLedger(jsonObject, config, issuanceDate);
             }
 
             String didUrl = requireNonBlank(config.getDidUrl(), "didUrl");
@@ -289,7 +291,7 @@ public class VCApiCredentialIssuanceSupport {
                 .format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
     }
 
-    private void storeLedger(JSONObject jsonObject, CredentialConfigurationDTO config, String time) {
+    private void storeLedger(JSONObject jsonObject, CredentialConfigurationDTO config, LocalDateTime issuanceDate) {
         Map<String, Object> indexedAttributes = ledgerUtils.extractIndexedAttributes(jsonObject);
         String credentialType = LedgerUtils.extractCredentialType(jsonObject);
         String credentialId = jsonObject.has("id") ? jsonObject.optString("id", null) : null;
@@ -297,7 +299,6 @@ public class VCApiCredentialIssuanceSupport {
             credentialId = null;
         }
         CredentialStatusDetail credentialStatusDetail = ledgerUtils.extractCredentialStatusDetails(jsonObject);
-        LocalDateTime issuanceDate = parseIssuanceDateTime(time);
         credentialLedgerService.storeLedgerEntry(credentialId, config.getDidUrl(), credentialType,
                 credentialStatusDetail, indexedAttributes, issuanceDate);
         log.info("VC API ledger entry stored for credentialType: {}", credentialType);
@@ -306,9 +307,15 @@ public class VCApiCredentialIssuanceSupport {
     private LocalDateTime parseIssuanceDateTime(String time) {
         try {
             return LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-        } catch (Exception ignored) {
-            // Accept common VCDM ISO-8601 forms (with/without millis, with Z offset).
-            return java.time.Instant.parse(normalizeToInstant(time)).atZone(ZoneOffset.UTC).toLocalDateTime();
+        } catch (Exception first) {
+            try {
+                // Accept common VCDM ISO-8601 forms (with/without millis, with Z offset).
+                return java.time.Instant.parse(normalizeToInstant(time)).atZone(ZoneOffset.UTC).toLocalDateTime();
+            } catch (Exception second) {
+                throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                        "Invalid validFrom; expected UTC pattern " + Constants.UTC_DATETIME_PATTERN
+                                + " (e.g. 2026-01-01T00:00:00.000Z)");
+            }
         }
     }
 
