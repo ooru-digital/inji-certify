@@ -42,7 +42,7 @@ public class VCApiIssuanceServiceTest {
     private VCApiIssuanceService vcApiIssuanceService;
 
     @Test
-    public void issue_loadsConfigFromHeaderId() throws Exception {
+    public void should_loadConfigAndIssue_when_headerConfigIdProvided() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         CredentialConfigurationDTO config = ldpConfig();
         when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
@@ -60,7 +60,7 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_returnsCredentialMapFromSignedVc() throws Exception {
+    public void should_returnCredentialMap_when_signedVcIssued() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         CredentialConfigurationDTO config = ldpConfig();
         when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
@@ -77,7 +77,7 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_whenSupportThrows_propagatesCertifyException() throws Exception {
+    public void should_propagateCertifyException_when_supportThrows() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         CredentialConfigurationDTO config = ldpConfig();
         when(credentialConfigurationService.getCredentialConfigurationById("unknown-config")).thenReturn(config);
@@ -90,7 +90,7 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_withEmptyOptions_succeeds() throws Exception {
+    public void should_issueSuccessfully_when_optionsEmpty() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         request.setOptions(new VCApiIssueOptions());
         CredentialConfigurationDTO config = ldpConfig();
@@ -107,7 +107,7 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_withNonEmptyOptions_rejects() throws Exception {
+    public void should_rejectRequest_when_optionsContainProofHints() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         VCApiIssueOptions options = new VCApiIssueOptions();
         options.setChallenge("nonce-123");

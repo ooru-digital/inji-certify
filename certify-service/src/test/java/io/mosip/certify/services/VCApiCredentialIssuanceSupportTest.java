@@ -28,9 +28,12 @@ import java.util.Optional;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
+import org.mockito.InOrder;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,7 +61,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenProofPresent() {
+    public void should_throwInvalidRequest_when_proofPresent() {
         Map<String, Object> credential = validCredential();
         credential.put("proof", Map.of("type", "DataIntegrityProof"));
 
@@ -68,7 +71,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenUnsupportedFormat() {
+    public void should_throwUnsupportedFormat_when_credentialFormatNotLdpVc() {
         CredentialConfigurationDTO config = ldpConfig();
         config.setCredentialFormat(VCFormats.DC_SD_JWT);
 
@@ -78,7 +81,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenMissingVcdm2Context() {
+    public void should_throwInvalidRequest_when_vcdm2ContextMissing() {
         Map<String, Object> credential = validCredential();
         credential.put("@context", List.of("https://www.w3.org/2018/credentials/v1"));
 
@@ -88,7 +91,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenContextMismatch() {
+    public void should_throwInvalidRequest_when_contextDoesNotMatchConfig() {
         CredentialConfigurationDTO config = ldpConfig();
         config.setContextURLs(List.of(VCDM2Constants.URL, "https://example.org/missing-context"));
 
@@ -98,7 +101,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenTypeMismatch() {
+    public void should_throwInvalidRequest_when_typeDoesNotMatchConfig() {
         CredentialConfigurationDTO config = ldpConfig();
         config.setCredentialTypes(List.of("VerifiableCredential", "OtherCredential"));
 
@@ -108,7 +111,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenIssuerMismatch() {
+    public void should_throwInvalidRequest_when_issuerDoesNotMatchConfig() {
         Map<String, Object> credential = validCredential();
         credential.put("issuer", "did:web:other.issuer");
 
@@ -118,7 +121,19 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_success_signsWithoutStatus() throws Exception {
+    public void should_throwInvalidRequest_when_credentialStatusPurposesMissing() {
+        CredentialConfigurationDTO config = ldpConfig();
+        config.setCredentialStatusPurposes(null);
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueValidatedCredential(validCredential(), config));
+        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+        verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString());
+        verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void should_addMandatoryCredentialStatus_when_issuanceSucceeds() throws Exception {
         CredentialConfigurationDTO config = ldpConfig();
         W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
         when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
@@ -134,15 +149,15 @@ public class VCApiCredentialIssuanceSupportTest {
                 support.issueValidatedCredential(validCredential(), config);
 
         assertNotNull(issued.verifiableCredential());
-        verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString());
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        verify(statusListCredentialService, never()).releaseCredentialStatus(any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    public void issueValidatedCredential_addsStatusAndLedger_whenConfigured() throws Exception {
+    public void should_storeLedgerAfterSigning_when_ledgerEnabled() throws Exception {
         ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
-        config.setCredentialStatusPurposes(List.of("revocation"));
 
         W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
         when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
@@ -156,13 +171,35 @@ public class VCApiCredentialIssuanceSupportTest {
 
         support.issueValidatedCredential(validCredential(), config);
 
-        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
-        verify(credentialLedgerService).storeLedgerEntry(eq("http://example.gov/credentials/1"), eq(DID_URL),
+        InOrder order = inOrder(statusListCredentialService, credentialBean, credentialLedgerService);
+        order.verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        order.verify(credentialBean).addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
+        order.verify(credentialLedgerService).storeLedgerEntry(eq("http://example.gov/credentials/1"), eq(DID_URL),
                 anyString(), any(), any(), any());
+        verify(statusListCredentialService, never()).releaseCredentialStatus(any());
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenSubjectHasExtraFields() {
+    public void should_releaseStatusAndSkipLedger_when_signingFails() throws Exception {
+        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        CredentialConfigurationDTO config = ldpConfig();
+
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new CertifyException(ErrorConstants.INVALID_REQUEST, "signing failed"));
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueValidatedCredential(validCredential(), config));
+        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        verify(statusListCredentialService).releaseCredentialStatus(any());
+        verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void should_throwInvalidRequest_when_subjectHasExtraFields() {
         CredentialConfigurationDTO config = ldpConfig();
         Map<String, Object> credential = validCredential();
         Map<String, Object> subject = new LinkedHashMap<>();
@@ -177,7 +214,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_allowsSubjectIdEvenIfNotInTemplate() throws Exception {
+    public void should_allowSubjectId_when_idMissingFromTemplate() throws Exception {
         CredentialConfigurationDTO config = ldpConfig();
         // template has fullName only; request may still include JSON-LD id
         config.setVcTemplate("""
@@ -199,10 +236,11 @@ public class VCApiCredentialIssuanceSupportTest {
                 .thenAnswer(invocation -> result);
 
         assertNotNull(support.issueValidatedCredential(credential, config).verifiableCredential());
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenValidFromMalformed_withLedgerEnabled() {
+    public void should_throwInvalidRequestAndSkipSideEffects_when_validFromMalformed() {
         ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
         Map<String, Object> credential = validCredential();
@@ -216,7 +254,7 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
-    public void issueValidatedCredential_throws_whenTemplateMissing() {
+    public void should_throwInvalidRequest_when_vcTemplateMissing() {
         CredentialConfigurationDTO config = ldpConfig();
         config.setVcTemplate(null);
 
@@ -247,6 +285,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setKeyManagerRefId("ED25519_SIGN");
         config.setSignatureAlgo("Ed25519");
         config.setSignatureCryptoSuite("Ed25519Signature2020");
+        config.setCredentialStatusPurposes(List.of("revocation"));
         config.setVcTemplate("""
                 {
                   "@context": ["https://www.w3.org/ns/credentials/v2", "https://example.org/examples/v2"],

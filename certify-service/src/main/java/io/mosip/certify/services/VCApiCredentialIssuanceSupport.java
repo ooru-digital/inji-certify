@@ -78,17 +78,14 @@ public class VCApiCredentialIssuanceSupport {
         // Validate timestamp before status-list / ledger / signing side effects.
         LocalDateTime issuanceDate = parseIssuanceDateTime(resolveIssuanceTime(jsonObject));
 
-        maybeAddCredentialStatus(jsonObject, config);
+        // Status is required for VC API so issued credentials are revocable.
+        // Index is claimed before signing because credentialStatus is part of the signed payload.
+        addCredentialStatus(jsonObject, config);
 
-        Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
-                .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
-
+        boolean compensateStatusOnFailure = true;
         try {
-            String unsignedCredential = jsonObject.toString();
-
-            if (isLedgerEnabled) {
-                storeLedger(jsonObject, config, issuanceDate);
-            }
+            Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
+                    .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
 
             String didUrl = requireNonBlank(config.getDidUrl(), "didUrl");
             String appId = requireNonBlank(config.getKeyManagerAppId(), "keyManagerAppId");
@@ -96,12 +93,23 @@ public class VCApiCredentialIssuanceSupport {
             String signAlgorithm = requireNonBlank(config.getSignatureAlgo(), "signatureAlgo");
             String cryptoSuite = requireNonBlank(config.getSignatureCryptoSuite(), "signatureCryptoSuite");
 
+            String unsignedCredential = jsonObject.toString();
             VCResult<?> result = cred.addProof(unsignedCredential, "", signAlgorithm, appId, refId, didUrl, cryptoSuite);
+            compensateStatusOnFailure = false;
+
+            // Persist ledger only after signing succeeds so failed issuance leaves no ledger row.
+            if (isLedgerEnabled) {
+                storeLedger(jsonObject, config, issuanceDate);
+            }
             return new VCApiIssueResult((JsonLDObject) result.getCredential());
         } catch (JSONException e) {
             log.error("VC API credential signing failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
                     "Invalid JSON data encountered during credential issuance");
+        } finally {
+            if (compensateStatusOnFailure) {
+                statusListCredentialService.releaseCredentialStatus(jsonObject);
+            }
         }
     }
 
@@ -270,10 +278,15 @@ public class VCApiCredentialIssuanceSupport {
         throw new CertifyException(ErrorConstants.INVALID_REQUEST, "Invalid issuer format");
     }
 
-    private void maybeAddCredentialStatus(JSONObject jsonObject, CredentialConfigurationDTO config) {
+    /**
+     * Allocates a BitstringStatusList entry. Mandatory for VC API issuance so credentials
+     * can be revoked/suspended via Certify status APIs.
+     */
+    private void addCredentialStatus(JSONObject jsonObject, CredentialConfigurationDTO config) {
         List<String> purposes = config.getCredentialStatusPurposes();
         if (purposes == null || purposes.isEmpty()) {
-            return;
+            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+                    "credentialStatusPurposes is required for VC API issuance (revocation support)");
         }
         if (!isLedgerEnabled) {
             log.warn("Ledger feature is disabled while revocation is enabled for config {}",

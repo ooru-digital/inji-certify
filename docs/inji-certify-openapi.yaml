@@ -1624,10 +1624,22 @@ paths:
                 $ref: '#/components/schemas/VCApiIssueResponse'
         '400':
           description: Invalid request or configuration mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCError'
         '401':
           description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCError'
         '404':
           description: Unknown credential configuration id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCError'
         '500':
           description: Credential issuance failed (signing, Key Manager, or status-list error)
           content:

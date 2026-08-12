@@ -16,6 +16,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -308,6 +309,45 @@ public class StatusListCredentialService {
         jsonObject.put(VCDM2Constants.CREDENTIAL_STATUS, credentialStatus);
 
         log.info("Successfully added credential status with index {} in status list {}", assignedIndex, statusList.getId());
+    }
+
+    /**
+     * Compensates a prior {@link #addCredentialStatus} assignment when issuance fails
+     * after the index was claimed (for example, signing failure).
+     */
+    @Transactional
+    public void releaseCredentialStatus(JSONObject jsonObject) {
+        if (jsonObject == null || !jsonObject.has(VCDM2Constants.CREDENTIAL_STATUS)) {
+            return;
+        }
+        try {
+            JSONObject credentialStatus = jsonObject.getJSONObject(VCDM2Constants.CREDENTIAL_STATUS);
+            String statusListCredentialUrl = credentialStatus.optString("statusListCredential", "");
+            String statusListIndex = credentialStatus.optString("statusListIndex", "");
+            if (StringUtils.isBlank(statusListCredentialUrl) || StringUtils.isBlank(statusListIndex)) {
+                return;
+            }
+            String listId = extractStatusListId(statusListCredentialUrl);
+            if (StringUtils.isBlank(listId)) {
+                log.warn("Unable to extract status list id from URL for compensation: {}", statusListCredentialUrl);
+                return;
+            }
+            long index = Long.parseLong(statusListIndex);
+            boolean released = indexProvider.releaseIndex(listId, index);
+            if (released) {
+                jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
+            }
+        } catch (Exception e) {
+            log.error("Failed to release credential status assignment after issuance failure", e);
+        }
+    }
+
+    private String extractStatusListId(String statusListCredentialUrl) {
+        int slash = statusListCredentialUrl.lastIndexOf('/');
+        if (slash < 0 || slash == statusListCredentialUrl.length() - 1) {
+            return null;
+        }
+        return statusListCredentialUrl.substring(slash + 1);
     }
 
     /**

@@ -107,8 +107,12 @@ applied by Certify signing in this phase — a non-empty value is rejected with 
 do not receive a signed VC that silently omits requested proof fields. Config id is **not**
 taken from `options` — use `X-Credential-Configuration-Id`.
 
-`validFrom` / `validUntil`, when present, must use Certify’s UTC pattern:
-`yyyy-MM-dd'T'HH:mm:ss.SSS'Z'` (e.g. `2026-01-01T00:00:00.000Z`).
+`validFrom`, when present, is parsed for ledger issuance time. Preferred form is Certify’s
+UTC pattern `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'` (e.g. `2026-01-01T00:00:00.000Z`). The parser also
+accepts common ISO-8601 / VCDM forms via `Instant` parsing (with or without milliseconds,
+`Z` or numeric offsets such as `+05:30`; a missing zone is treated as UTC).
+`validUntil`, when present, is passed through on the credential and is not separately
+validated by this path — prefer the same UTC pattern for consistency.
 
 ### Response (`201 Created`)
 
@@ -142,6 +146,7 @@ taken from `options` — use `X-Credential-Configuration-Id`.
 | Request `@context` / `type` / `issuer` do not match onboarded config | `400` |
 | Missing / empty / `{}` `vcTemplate`, or template without `credentialSubject` | `400` |
 | `credentialSubject` keys ≠ template `credentialSubject` keys | `400` |
+| Config missing `credentialStatusPurposes` (required for revocation) | `400` |
 | Signing / Key Manager / status list failure | `500` |
 
 Match semantics:
@@ -202,16 +207,19 @@ sequenceDiagram
     alt mismatch
         Val-->>C: 400
     else match
-        opt revocation purposes configured
-            Svc->>ST: addCredentialStatus
-        end
+        Svc->>ST: addCredentialStatus (mandatory for revocation)
         Svc->>CF: addProof(unsignedCredentialJson)
-        CF-->>Svc: signed VC
-        opt ledger enabled
-            Svc->>LD: storeLedgerEntry
+        alt signing fails
+            Svc->>ST: releaseCredentialStatus
+            Svc-->>C: error (no ledger row)
+        else signing succeeds
+            CF-->>Svc: signed VC
+            opt ledger enabled
+                Svc->>LD: storeLedgerEntry
+            end
+            Svc-->>Ctrl: VCApiIssueResponse
+            Ctrl-->>C: 201 verifiableCredential
         end
-        Svc-->>Ctrl: VCApiIssueResponse
-        Ctrl-->>C: 201 verifiableCredential
     end
 ```
 
@@ -225,10 +233,11 @@ sequenceDiagram
 5. Require ldp_vc + VCDM 2.0 context
 6. Validate @context / type / issuer against config
 7. Validate credentialSubject keys against onboarded vcTemplate
-8. Optional: add credentialStatus when config has status purposes
+8. Required: add credentialStatus (credentialStatusPurposes on config; enables revocation)
 9. W3CJsonLD.addProof using config signing fields (no Velocity rebuild)
-10. Optional: ledger metadata
-11. Return 201 + verifiableCredential
+10. On signing failure: release status-list index; do not write ledger
+11. Optional: ledger metadata (only after successful signing)
+12. Return 201 + verifiableCredential
 ```
 
 **Not used for this API:** `DataProviderPlugin.fetchData`, Velocity evaluation of `vcTemplate` to rebuild
