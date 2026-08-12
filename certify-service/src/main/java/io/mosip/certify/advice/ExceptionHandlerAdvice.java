@@ -36,6 +36,11 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -153,6 +158,31 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
     }
 
     public ResponseEntity<VCError> handleVCIControllerExceptions(Exception ex, HttpServletRequest request) {
+        if(ex instanceof HttpMessageNotReadableException) {
+            String message = "Invalid JSON request body";
+            Throwable cause = ex.getCause();
+
+            // Provide more specific error based on the root cause
+            if (cause instanceof UnrecognizedPropertyException) {
+                UnrecognizedPropertyException propEx =
+                    (UnrecognizedPropertyException) cause;
+                message = String.format("Unrecognized field '%s' in request", propEx.getPropertyName());
+            } else if (cause instanceof InvalidFormatException) {
+                InvalidFormatException formatEx = (InvalidFormatException) cause;
+                String fieldName = formatEx.getPath().isEmpty() ? "unknown"
+                    : formatEx.getPath().get(formatEx.getPath().size() - 1).getFieldName();
+                message = String.format("Invalid format for field '%s' in request", fieldName);
+            } else if (cause instanceof JsonParseException) {
+                message = "Malformed JSON syntax error";
+            } else if (cause instanceof JsonMappingException) {
+                JsonMappingException mappingEx = (JsonMappingException) cause;
+                String fieldName = mappingEx.getPath().isEmpty() ? "unknown"
+                    : mappingEx.getPath().get(mappingEx.getPath().size() - 1).getFieldName();
+                message = String.format("Invalid request structure for field '%s'", fieldName);
+            }
+
+            return new ResponseEntity<>(getVCErrorDto(INVALID_REQUEST, message), HttpStatus.BAD_REQUEST);
+        }
         if(ex instanceof MethodArgumentNotValidException) {
             FieldError fieldError = ((MethodArgumentNotValidException) ex).getBindingResult().getFieldError();
             String message = fieldError != null ? fieldError.getDefaultMessage() : ex.getMessage();
