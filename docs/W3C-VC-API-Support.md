@@ -235,9 +235,10 @@ sequenceDiagram
 7. Validate credentialSubject keys against onboarded vcTemplate
 8. Required: add credentialStatus (credentialStatusPurposes on config; enables revocation)
 9. W3CJsonLD.addProof using config signing fields (no Velocity rebuild)
-10. On signing failure: release status-list index; do not write ledger
-11. Optional: ledger metadata (only after successful signing)
-12. Return 201 + verifiableCredential
+10. Validate signed credential is present (JsonLDObject); else fail and release status index
+11. Optional: ledger metadata (only after valid signed credential)
+12. On any failure before completion: release status-list index; do not keep issuance state
+13. Return 201 + verifiableCredential
 ```
 
 **Not used for this API:** `DataProviderPlugin.fetchData`, Velocity evaluation of `vcTemplate` to rebuild

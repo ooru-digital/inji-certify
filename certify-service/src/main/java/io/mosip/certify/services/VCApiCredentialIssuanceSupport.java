@@ -95,13 +95,18 @@ public class VCApiCredentialIssuanceSupport {
 
             String unsignedCredential = jsonObject.toString();
             VCResult<?> result = cred.addProof(unsignedCredential, "", signAlgorithm, appId, refId, didUrl, cryptoSuite);
-            compensateStatusOnFailure = false;
+            if (result == null || !(result.getCredential() instanceof JsonLDObject signedCredential)) {
+                throw new CertifyException(ErrorConstants.VC_ISSUANCE_FAILED,
+                        "Credential signing did not return a signed credential");
+            }
 
-            // Persist ledger only after signing succeeds so failed issuance leaves no ledger row.
+            // Persist ledger only after a valid signed credential exists.
             if (isLedgerEnabled) {
                 storeLedger(jsonObject, config, issuanceDate);
             }
-            return new VCApiIssueResult((JsonLDObject) result.getCredential());
+            // Disable compensation only after all required issuance side effects succeed.
+            compensateStatusOnFailure = false;
+            return new VCApiIssueResult(signedCredential);
         } catch (JSONException e) {
             log.error("VC API credential signing failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,

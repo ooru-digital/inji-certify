@@ -199,6 +199,54 @@ public class VCApiCredentialIssuanceSupportTest {
     }
 
     @Test
+    public void should_releaseStatusAndSkipLedger_when_signedCredentialMissing() throws Exception {
+        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        CredentialConfigurationDTO config = ldpConfig();
+
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(null);
+        when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueValidatedCredential(validCredential(), config));
+        assertEquals(ErrorConstants.VC_ISSUANCE_FAILED, ex.getErrorCode());
+
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        verify(statusListCredentialService).releaseCredentialStatus(any());
+        verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    public void should_releaseStatus_when_ledgerWriteFails() throws Exception {
+        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        CredentialConfigurationDTO config = ldpConfig();
+
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(signed);
+        when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+        when(ledgerUtils.extractIndexedAttributes(any())).thenReturn(Map.of());
+        when(ledgerUtils.extractCredentialStatusDetails(any())).thenReturn(null);
+        org.mockito.Mockito.doThrow(new CertifyException(ErrorConstants.LEDGER_ENTRY_FAILED, "ledger failed"))
+                .when(credentialLedgerService)
+                .storeLedgerEntry(any(), any(), any(), any(), any(), any());
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> support.issueValidatedCredential(validCredential(), config));
+        assertEquals(ErrorConstants.LEDGER_ENTRY_FAILED, ex.getErrorCode());
+
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
+        verify(credentialLedgerService).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+        verify(statusListCredentialService).releaseCredentialStatus(any());
+    }
+
+    @Test
     public void should_throwInvalidRequest_when_subjectHasExtraFields() {
         CredentialConfigurationDTO config = ldpConfig();
         Map<String, Object> credential = validCredential();
