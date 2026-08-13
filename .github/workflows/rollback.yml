@@ -1,0 +1,307 @@
+name: Kubernetes Rollback
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+      revision:
+        description: "Helm revision number to rollback to"
+        required: true
+        type: string
+
+jobs:
+
+  rollback:
+    name: Helm Rollback
+    runs-on: [self-hosted, linux, x64, aws]
+
+    steps:
+
+      # --------------------------------------------------
+      # Validate Revision
+      # --------------------------------------------------
+
+      - name: Validate revision
+        run: |
+          if [ -z "${{ inputs.revision }}" ]; then
+            echo "::error::Helm revision is required."
+            exit 1
+          fi
+
+          if ! [[ "${{ inputs.revision }}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Revision must be a number."
+            exit 1
+          fi
+
+          echo "Rollback revision: ${{ inputs.revision }}"
+
+
+      # --------------------------------------------------
+      # Set Environment Variables
+      # --------------------------------------------------
+
+      - name: Set environment variables
+        id: env
+        run: |
+
+          if [ "${{ inputs.target_environment }}" = "staging" ]; then
+            echo "AWS_REGION=${{ vars.AWS_REGION }}" >> "$GITHUB_OUTPUT"
+            echo "AWS_ROLE=${{ vars.STAGING_GITHUB_ACTIONS_AWS_ROLE_ARN }}" >> "$GITHUB_OUTPUT"
+            echo "EKS_CLUSTER=${{ vars.STAGING_EKS_CLUSTER_NAME }}" >> "$GITHUB_OUTPUT"
+            echo "NAMESPACE=${{ vars.STAGING_KUBERNETES_NAMESPACE }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "AWS_REGION=${{ vars.AWS_REGION }}" >> "$GITHUB_OUTPUT"
+            echo "AWS_ROLE=${{ vars.PRODUCTION_GITHUB_ACTIONS_AWS_ROLE_ARN }}" >> "$GITHUB_OUTPUT"
+            echo "EKS_CLUSTER=${{ vars.PRODUCTION_EKS_CLUSTER_NAME }}" >> "$GITHUB_OUTPUT"
+            echo "NAMESPACE=${{ vars.PRODUCTION_KUBERNETES_NAMESPACE }}" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "HELM_RELEASE=inji-certify-4152-repo" >> "$GITHUB_OUTPUT"
+
+
+      # --------------------------------------------------
+      # Configure AWS
+      # --------------------------------------------------
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ steps.env.outputs.AWS_REGION }}
+          role-to-assume: ${{ steps.env.outputs.AWS_ROLE }}
+          role-chaining: true
+
+
+      # --------------------------------------------------
+      # Install kubectl
+      # --------------------------------------------------
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+
+      # --------------------------------------------------
+      # Install Helm
+      # --------------------------------------------------
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+
+      # --------------------------------------------------
+      # Configure kubeconfig
+      # --------------------------------------------------
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ steps.env.outputs.EKS_CLUSTER }}" \
+            --region "${{ steps.env.outputs.AWS_REGION }}"
+
+
+      # --------------------------------------------------
+      # Verify EKS Access
+      # --------------------------------------------------
+
+      - name: Verify EKS access
+        run: |
+          kubectl config current-context
+          kubectl get nodes
+
+          echo ""
+          echo "Environment : ${{ inputs.target_environment }}"
+          echo "Cluster     : ${{ steps.env.outputs.EKS_CLUSTER }}"
+          echo "Namespace   : ${{ steps.env.outputs.NAMESPACE }}"
+          echo "Helm Release: ${{ steps.env.outputs.HELM_RELEASE }}"
+
+
+      # --------------------------------------------------
+      # Show Helm History
+      # --------------------------------------------------
+
+      - name: Show Helm history
+        run: |
+
+          echo "=========================================="
+          echo "HELM HISTORY"
+          echo "=========================================="
+
+          helm history \
+            "${{ steps.env.outputs.HELM_RELEASE }}" \
+            --namespace "${{ steps.env.outputs.NAMESPACE }}"
+
+
+      # --------------------------------------------------
+      # Validate Selected Revision Exists
+      # --------------------------------------------------
+
+      - name: Validate Helm revision
+        run: |
+
+          REVISION="${{ inputs.revision }}"
+
+          echo "Checking Helm revision: $REVISION"
+
+          helm history \
+            "${{ steps.env.outputs.HELM_RELEASE }}" \
+            --namespace "${{ steps.env.outputs.NAMESPACE }}" \
+            | awk -v rev="$REVISION" '$1 == rev { found=1 } END { exit !found }'
+
+          if [ $? -ne 0 ]; then
+            echo "::error::Helm revision $REVISION does not exist for release ${{ steps.env.outputs.HELM_RELEASE }}."
+            exit 1
+          fi
+
+          echo "Helm revision $REVISION exists."
+
+
+      # --------------------------------------------------
+      # Helm Rollback
+      # --------------------------------------------------
+
+      - name: Helm rollback
+        run: |
+
+          echo "=========================================="
+          echo "HELM ROLLBACK"
+          echo "=========================================="
+
+          echo "Release   : ${{ steps.env.outputs.HELM_RELEASE }}"
+          echo "Revision  : ${{ inputs.revision }}"
+          echo "Namespace : ${{ steps.env.outputs.NAMESPACE }}"
+
+          echo ""
+
+          helm rollback \
+            "${{ steps.env.outputs.HELM_RELEASE }}" \
+            "${{ inputs.revision }}" \
+            --namespace "${{ steps.env.outputs.NAMESPACE }}" \
+            --wait \
+            --timeout 10m
+
+          echo ""
+          echo "✅ Helm rollback completed successfully."
+
+
+      # --------------------------------------------------
+      # Verify Rollback
+      # --------------------------------------------------
+
+      - name: Verify rollback
+        run: |
+
+          echo "=========================================="
+          echo "ROLLBACK RESULT"
+          echo "=========================================="
+
+          echo ""
+          echo "Helm Status:"
+
+          helm status \
+            "${{ steps.env.outputs.HELM_RELEASE }}" \
+            --namespace "${{ steps.env.outputs.NAMESPACE }}"
+
+
+          echo ""
+          echo "Helm History:"
+
+          helm history \
+            "${{ steps.env.outputs.HELM_RELEASE }}" \
+            --namespace "${{ steps.env.outputs.NAMESPACE }}"
+
+
+          echo ""
+          echo "Deployments:"
+
+          kubectl get deployments \
+            -n "${{ steps.env.outputs.NAMESPACE }}"
+
+
+          echo ""
+          echo "Pods:"
+
+          kubectl get pods \
+            -n "${{ steps.env.outputs.NAMESPACE }}"
+
+
+          echo ""
+          echo "Current Images:"
+
+          kubectl get deployments \
+            -n "${{ steps.env.outputs.NAMESPACE }}" \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" => "}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'
+
+
+      # --------------------------------------------------
+      # Discord Notification
+      # --------------------------------------------------
+
+      - name: Send Rollback Notification
+        if: ${{ always() }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+        run: |
+
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "::warning::DISCORD_WEBHOOK secret is not configured"
+            exit 0
+          fi
+
+          if [[ ! "$DISCORD_WEBHOOK" =~ ^https://(discord\.com|discordapp\.com)/api/webhooks/ ]]; then
+            echo "::warning::Invalid Discord webhook URL"
+            exit 0
+          fi
+
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS="✅ Rollback Completed"
+          else
+            STATUS="❌ Rollback Failed"
+          fi
+
+          CONTENT=$(cat <<EOF
+          🔄 **Helm Rollback Report**
+
+          Status        : ${STATUS}
+
+          Environment   : ${{ inputs.target_environment }}
+
+          Helm Release  : ${{ steps.env.outputs.HELM_RELEASE }}
+
+          Namespace     : ${{ steps.env.outputs.NAMESPACE }}
+
+          Cluster       : ${{ steps.env.outputs.EKS_CLUSTER }}
+
+          Rollback To   : Helm Revision ${{ inputs.revision }}
+
+          Triggered By  : ${{ github.actor }}
+
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )
+
+          echo "Sending rollback notification..."
+
+          curl -sS \
+            --fail-with-body \
+            -F "content=${CONTENT}" \
+            "$DISCORD_WEBHOOK" || {
+              echo "⚠️ Discord notification failed"
+              exit 0
+            }
+
+          echo "✅ Rollback notification sent."
