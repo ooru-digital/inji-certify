@@ -72,29 +72,26 @@ jobs:
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_WEBHOOK }}
 
-  # deploy:
-  #   name: Staging Deploy To EKS
-  #   needs: [classify, trigger-integration-tests, container_pipeline]
-  #   if: ${{ needs.classify.outputs.tag_kind != 'invalid' && needs.container_pipeline.result == 'success' && needs.trigger-integration-tests.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_eks)) }}
-  #   uses: ./.github/workflows/deploy-eks.yml
-  #   with:
-  #     aws_region: ${{ vars.AWS_REGION }}
-  #     aws_role_to_assume: ${{ vars.STAGING_GITHUB_ACTIONS_AWS_ROLE_ARN }}
-  #     eks_cluster_name: ${{ vars.STAGING_EKS_CLUSTER_NAME }}
-  #     kubernetes_namespace: ${{ vars.STAGING_KUBERNETES_NAMESPACE }}
-  #     manifest_dir: deploy/eks/staging
-  #     manifest_files: "celery-deploy.yaml payment-deploy.yaml"
-  #     docker_image: docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
-  #     payment_deployment_name: payment-apis
-  #     payment_container_name: payment-apis
-  #     celery_enabled: true
-  #     celery_deployment_name: celery-worker
-  #     celery_container_name: celery-worker
-  #     unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
-  #     trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
-  #   secrets:
-  #     dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #     dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+  deploy:
+    name: Staging Deploy To EKS
+    needs: [classify, trigger-integration-tests, container_pipeline]
+    if: ${{ needs.classify.outputs.tag_kind != 'invalid' && needs.container_pipeline.result == 'success' && needs.trigger-integration-tests.result == 'success' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.deploy_to_eks)) }}
+    uses: ./.github/workflows/deploy-eks.yml
+    with:
+      aws_region: ${{ vars.AWS_REGION }}
+      aws_role_to_assume: ${{ vars.STAGING_GITHUB_ACTIONS_AWS_ROLE_ARN }}
+      eks_cluster_name: ${{ vars.STAGING_EKS_CLUSTER_NAME }}
+      kubernetes_namespace: ${{ vars.STAGING_KUBERNETES_NAMESPACE }}
+      docker_image: docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
+      helm_release_name: inji-certify-4152-repo
+      helm_chart_path: deployment-configs/helm/new-inji-certify
+      unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
+      trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+      deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
+      discord_webhook: ${{ secrets.DISCORD_WEBHOOK }}
 
   # promote_to_production:
   #   name: Promote Release Image To Production Registry
