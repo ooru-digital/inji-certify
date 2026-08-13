@@ -219,6 +219,7 @@ jobs:
 
           IMAGE_TAG="${DOCKER_IMAGE##*:}"
           IMAGE_REPOSITORY="${DOCKER_IMAGE%:*}"
+          IMAGE_REPOSITORY="${IMAGE_REPOSITORY#docker.io/}"
 
           echo "Image Repository: ${IMAGE_REPOSITORY}"
           echo "Image Tag       : ${IMAGE_TAG}"
