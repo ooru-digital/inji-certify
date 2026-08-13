@@ -264,7 +264,6 @@ jobs:
             "${{ inputs.kubernetes_namespace }}"
             "--create-namespace"
             "--install"
-            "--upgrade"
             "--wait"
             "--timeout"
             "10m"
