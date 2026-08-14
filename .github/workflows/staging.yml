@@ -241,5 +241,5 @@ jobs:
             [ -f reports/unit-test/unit-test-report.txt ] && CURL_ARGS+=(-F "file1=@reports/unit-test/unit-test-report.txt")
             [ -f reports/trivy/trivy-report.txt ] && CURL_ARGS+=(-F "file2=@reports/trivy/trivy-report.txt")
 
-  #           curl "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK"
-  #         fi
+            curl "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK"
+          fi
