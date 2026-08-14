@@ -1,0 +1,427 @@
+name: Deploy To EKS
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: true
+        type: string
+
+      aws_role_to_assume:
+        required: true
+        type: string
+
+      eks_cluster_name:
+        required: true
+        type: string
+
+      kubernetes_namespace:
+        required: true
+        type: string
+
+      docker_image:
+        description: "Full Docker image including tag"
+        required: true
+        type: string
+
+      helm_release_name:
+        description: "Helm release name"
+        required: false
+        type: string
+        default: ""
+
+      helm_chart_path:
+        description: "Helm chart path inside deployment-configs repository"
+        required: false
+        type: string
+        default: ""
+
+      helm_values_file:
+        description: "Helm values file"
+        required: false
+        type: string
+        default: ""
+
+      unit_test_status:
+        required: true
+        type: string
+
+      trivy_status:
+        required: true
+        type: string
+
+    secrets:
+      dockerhub_username:
+        required: true
+
+      dockerhub_token:
+        required: true
+
+      discord_webhook:
+        required: false
+
+      deployment_configs_token:
+        description: "GitHub token to checkout deployment-configs repository if private"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy To EKS
+    runs-on: [self-hosted, linux, x64, aws]
+
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+
+    steps:
+
+      # ---------------------------------------------------------
+      # Checkout application repository
+      # ---------------------------------------------------------
+      - name: Checkout application code
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # Checkout deployment-configs repository
+      # ---------------------------------------------------------
+      - name: Checkout deployment configs
+        uses: actions/checkout@v4
+        with:
+          repository: ooru-digital/deployment-configs
+          ref: main
+          path: deployment-configs
+          token: ${{ secrets.deployment_configs_token || github.token }}
+
+      # ---------------------------------------------------------
+      # Show deployment location
+      # ---------------------------------------------------------
+      - name: Explain deploy execution location
+        run: |
+          echo "Deployment job is running on GitHub self-hosted runner."
+          echo "AWS, kubectl and Helm commands execute directly from this runner."
+
+      # ---------------------------------------------------------
+      # Configure AWS credentials
+      # ---------------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ inputs.aws_region }}
+          role-to-assume: ${{ inputs.aws_role_to_assume }}
+          role-chaining: true
+
+      # ---------------------------------------------------------
+      # Install kubectl
+      # ---------------------------------------------------------
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      # ---------------------------------------------------------
+      # Install Helm
+      # ---------------------------------------------------------
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      # ---------------------------------------------------------
+      # Configure kubeconfig
+      # ---------------------------------------------------------
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ inputs.eks_cluster_name }}" \
+            --region "${{ inputs.aws_region }}"
+
+      # ---------------------------------------------------------
+      # Verify EKS access
+      # ---------------------------------------------------------
+      - name: Verify cluster access
+        id: verify_cluster
+        run: |
+          kubectl config current-context
+          kubectl get nodes
+
+      # ---------------------------------------------------------
+      # EKS access failure notification
+      # ---------------------------------------------------------
+      - name: Send EKS Access Failed Alert
+        if: ${{ failure() && steps.verify_cluster.outcome == 'failure' && env.DISCORD_WEBHOOK != '' }}
+        run: |
+          CONTENT=$(cat <<EOF
+          🚨 **CD - EKS Access Failed**
+
+          Repository : ${{ github.repository }}
+          Branch/Tag : ${{ github.ref_name }}
+          Trigger    : ${{ github.event_name == 'workflow_dispatch' && 'Manual' || 'Auto' }}
+          Runner     : Self-Hosted
+
+          Cluster    : ${{ inputs.eks_cluster_name }}
+          Namespace  : ${{ inputs.kubernetes_namespace }}
+
+          Status     : ❌ FAILED
+          Reason     : Runner could not access the EKS cluster.
+
+          Run:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )
+
+          curl \
+            -F "content=${CONTENT}" \
+            "$DISCORD_WEBHOOK"
+
+      # ---------------------------------------------------------
+      # Verify Helm chart
+      # ---------------------------------------------------------
+      - name: Verify Helm chart
+        run: |
+          echo "Helm chart:"
+          echo "${{ inputs.helm_chart_path }}"
+
+          test -d "${{ inputs.helm_chart_path }}" || {
+            echo "❌ Helm chart directory not found"
+            exit 1
+          }
+
+          test -f "${{ inputs.helm_chart_path }}/Chart.yaml" || {
+            echo "❌ Chart.yaml not found"
+            exit 1
+          }
+
+          echo "✅ Helm chart found"
+
+      # ---------------------------------------------------------
+      # Helm dependencies
+      # ---------------------------------------------------------
+      - name: Update Helm dependencies
+        run: |
+          helm dependency update "${{ inputs.helm_chart_path }}"
+
+      # ---------------------------------------------------------
+      # Helm lint
+      # ---------------------------------------------------------
+      - name: Helm Lint
+        run: |
+          helm lint "${{ inputs.helm_chart_path }}"
+
+      # ---------------------------------------------------------
+      # Extract image repository and tag
+      # ---------------------------------------------------------
+      - name: Extract Docker image
+        id: image
+        run: |
+          DOCKER_IMAGE="${{ inputs.docker_image }}"
+
+          IMAGE_TAG="${DOCKER_IMAGE##*:}"
+          IMAGE_REPOSITORY="${DOCKER_IMAGE%:*}"
+          IMAGE_REPOSITORY="${IMAGE_REPOSITORY#docker.io/}"
+
+          echo "Image Repository: ${IMAGE_REPOSITORY}"
+          echo "Image Tag       : ${IMAGE_TAG}"
+
+          echo "repository=${IMAGE_REPOSITORY}" >> "$GITHUB_OUTPUT"
+          echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------
+      # Helm template validation
+      # ---------------------------------------------------------
+      - name: Helm Template
+        run: |
+          HELM_ARGS=(
+            "${{ inputs.helm_release_name }}"
+            "${{ inputs.helm_chart_path }}"
+            "--namespace"
+            "${{ inputs.kubernetes_namespace }}"
+            "--set"
+            "image.repository=${{ steps.image.outputs.repository }}"
+            "--set"
+            "image.tag=${{ steps.image.outputs.tag }}"
+          )
+
+          if [ -n "${{ inputs.helm_values_file }}" ]; then
+            HELM_ARGS+=(
+              "--values"
+              "${{ inputs.helm_values_file }}"
+            )
+          fi
+
+          helm template "${HELM_ARGS[@]}"
+
+      # ---------------------------------------------------------
+      # Helm Upgrade / Install
+      # ---------------------------------------------------------
+      - name: Helm Upgrade and Install
+        id: helm_deploy
+        run: |
+          HELM_ARGS=(
+            "${{ inputs.helm_release_name }}"
+            "${{ inputs.helm_chart_path }}"
+            "--namespace"
+            "${{ inputs.kubernetes_namespace }}"
+            "--create-namespace"
+            "--install"
+            "--wait"
+            "--timeout"
+            "10m"
+            "--set"
+            "image.repository=${{ steps.image.outputs.repository }}"
+            "--set"
+            "image.tag=${{ steps.image.outputs.tag }}"
+          )
+
+          if [ -n "${{ inputs.helm_values_file }}" ]; then
+            HELM_ARGS+=(
+              "--values"
+              "${{ inputs.helm_values_file }}"
+            )
+          fi
+
+          echo "Deploying Helm release..."
+          echo "Release   : ${{ inputs.helm_release_name }}"
+          echo "Namespace : ${{ inputs.kubernetes_namespace }}"
+          echo "Chart     : ${{ inputs.helm_chart_path }}"
+          echo "Image     : ${{ inputs.docker_image }}"
+
+          helm upgrade "${HELM_ARGS[@]}"
+
+      # ---------------------------------------------------------
+      # Helm status
+      # ---------------------------------------------------------
+      - name: Helm Release Status
+        run: |
+          helm status "${{ inputs.helm_release_name }}" \
+            --namespace "${{ inputs.kubernetes_namespace }}"
+
+      # ---------------------------------------------------------
+      # Helm history
+      # ---------------------------------------------------------
+      - name: Helm Release History
+        if: always()
+        run: |
+          helm history "${{ inputs.helm_release_name }}" \
+            --namespace "${{ inputs.kubernetes_namespace }}" \
+            --max 10 || true
+
+      # ---------------------------------------------------------
+      # Show Kubernetes resources
+      # ---------------------------------------------------------
+      - name: Show deployment resources
+        run: |
+          kubectl get deploy,po,svc \
+            --namespace "${{ inputs.kubernetes_namespace }}"
+
+      # ---------------------------------------------------------
+      # Download Unit Test Report
+      # ---------------------------------------------------------
+      - name: Download Unit Test Report
+        if: always()
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: unit-test-report
+          path: reports/unit-test
+
+      # ---------------------------------------------------------
+      # Download Trivy Report
+      # ---------------------------------------------------------
+      - name: Download Trivy Report
+        if: always()
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: trivy-report
+          path: reports/trivy
+
+      # ---------------------------------------------------------
+      # Final Deployment Report
+      # ---------------------------------------------------------
+      - name: Send Final Deployment Report
+        if: always() && env.DISCORD_WEBHOOK != ''
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            DEPLOY_STATUS="PASSED"
+            DEPLOY_EMOJI="✅"
+          else
+            DEPLOY_STATUS="FAILED"
+            DEPLOY_EMOJI="❌"
+          fi
+
+          # Unit Test report
+          if [ -f reports/unit-test/unit-test-report.txt ]; then
+            UNIT_REPORT_STATUS="📎 Attached"
+          else
+            UNIT_REPORT_STATUS="❌ Not available"
+          fi
+
+          # Trivy report
+          if [ -f reports/trivy/trivy-report.txt ]; then
+            TRIVY_REPORT_STATUS="📎 Attached"
+          else
+            TRIVY_REPORT_STATUS="❌ Not available"
+          fi
+
+          CONTENT=$(cat <<EOF
+          🚀 **Helm Deployment Report**
+
+          Repository : ${{ github.repository }}
+          Branch/Tag : ${{ github.ref_name }}
+
+          Cluster    : ${{ inputs.eks_cluster_name }}
+          Namespace  : ${{ inputs.kubernetes_namespace }}
+
+          Helm Release : ${{ inputs.helm_release_name }}
+          Helm Chart   : ${{ inputs.helm_chart_path }}
+
+          Docker Image : ${{ inputs.docker_image }}
+
+          Deployment : ${DEPLOY_EMOJI} ${DEPLOY_STATUS}
+
+          Unit Tests : ${{ inputs.unit_test_status }}
+          Trivy      : ${{ inputs.trivy_status }}
+
+          Unit Test Report : ${UNIT_REPORT_STATUS}
+          Trivy Report     : ${TRIVY_REPORT_STATUS}
+
+          Triggered By : ${{ github.actor }}
+          Runner       : Self-Hosted
+
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )
+
+          CURL_ARGS=(
+            -sS
+            --fail-with-body
+            -F "content=${CONTENT}"
+          )
+
+          # Attach Unit Test Report
+          if [ -f reports/unit-test/unit-test-report.txt ]; then
+            echo "Attaching unit test report..."
+
+            CURL_ARGS+=(
+              -F "file1=@reports/unit-test/unit-test-report.txt"
+            )
+          fi
+
+          # Attach Trivy Report
+          if [ -f reports/trivy/trivy-report.txt ]; then
+            echo "Attaching Trivy report..."
+
+            CURL_ARGS+=(
+              -F "file2=@reports/trivy/trivy-report.txt"
+            )
+          fi
+
+          echo "Sending final deployment notification..."
+
+          curl "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK" || {
+            echo "⚠️ Discord notification failed"
+            echo "Deployment status remains: ${DEPLOY_STATUS}"
+            exit 0
+          }
