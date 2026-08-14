@@ -93,153 +93,153 @@ jobs:
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_WEBHOOK }}
 
-  # promote_to_production:
-  #   name: Promote Release Image To Production Registry
-  #   needs: [classify, container_pipeline]
-  #   if: ${{ needs.classify.outputs.tag_kind == 'release' && needs.container_pipeline.result == 'success' }}
-  #   runs-on: [self-hosted, linux, x64, aws]
-  #   steps:
-  #     - name: Registry login
-  #       uses: docker/login-action@v3
-  #       with:
-  #         registry: docker.io
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  promote_to_production:
+    name: Promote Release Image To Production Registry
+    needs: [classify, container_pipeline]
+    if: ${{ needs.classify.outputs.tag_kind == 'release' && needs.container_pipeline.result == 'success' }}
+    runs-on: [self-hosted, linux, x64, aws]
+    steps:
+      - name: Registry login
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  #     - name: Pull the image just built for staging
-  #       run: |
-  #         docker pull "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+      - name: Pull the image just built for staging
+        run: |
+          docker pull "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
 
-  #     - name: Tag and push to production registry (no rebuild, not deployed to prod yet)
-  #       run: |
-  #         SRC="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
-  #         DEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
-  #         DEST_LATEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest"
+      - name: Tag and push to production registry (no rebuild, not deployed to prod yet)
+        run: |
+          SRC="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+          DEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+          DEST_LATEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest"
 
-  #         docker tag "$SRC" "$DEST"
-  #         docker tag "$SRC" "$DEST_LATEST"
+          docker tag "$SRC" "$DEST"
+          docker tag "$SRC" "$DEST_LATEST"
 
-  #         docker push "$DEST"
-  #         docker push "$DEST_LATEST"
+          docker push "$DEST"
+          docker push "$DEST_LATEST"
 
-  #     - name: Image cleanup
-  #       if: always()
-  #       run: |
-  #         docker image rm "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}" || true
-  #         docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}" || true
-  #         docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest" || true
-  #         docker image prune -af || true
+      - name: Image cleanup
+        if: always()
+        run: |
+          docker image rm "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}" || true
+          docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}" || true
+          docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest" || true
+          docker image prune -af || true
 
-  # notify:
-  #   name: Pipeline Result Notification
-  #   needs:
-  #     [
-  #       classify,
-  #       trigger-integration-tests,
-  #       container_pipeline,
-  #       deploy,
-  #       promote_to_production,
-  #     ]
-  #   if: ${{ always() && needs.classify.outputs.tag_kind != 'invalid' }}
-  #   runs-on: ubuntu-latest
-  #   env:
-  #     DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-  #   steps:
-  #     - name: Download Unit Test Report
-  #       if: env.DISCORD_WEBHOOK != ''
-  #       uses: actions/download-artifact@v4
-  #       continue-on-error: true
-  #       with:
-  #         name: unit-test-report
-  #         path: reports/unit-test
+  notify:
+    name: Pipeline Result Notification
+    needs:
+      [
+        classify,
+        trigger-integration-tests,
+        container_pipeline,
+        deploy,
+        promote_to_production,
+      ]
+    if: ${{ always() && needs.classify.outputs.tag_kind != 'invalid' }}
+    runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+    steps:
+      - name: Download Unit Test Report
+        if: env.DISCORD_WEBHOOK != ''
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: unit-test-report
+          path: reports/unit-test
 
-  #     - name: Download Trivy Report
-  #       if: env.DISCORD_WEBHOOK != ''
-  #       uses: actions/download-artifact@v4
-  #       continue-on-error: true
-  #       with:
-  #         name: trivy-report
-  #         path: reports/trivy
+      - name: Download Trivy Report
+        if: env.DISCORD_WEBHOOK != ''
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: trivy-report
+          path: reports/trivy
 
-  #     - name: Determine outcome and send single Discord alert
-  #       if: env.DISCORD_WEBHOOK != ''
-  #       run: |
-  #         UNIT_STATUS="${{ needs.trigger-integration-tests.outputs.test_status }}"
-  #         TRIVY_STATUS="${{ needs.container_pipeline.outputs.trivy_status }}"
-  #         GITLEAKS_STATUS="${{ needs.container_pipeline.outputs.gitleaks_status }}"
+      - name: Determine outcome and send single Discord alert
+        if: env.DISCORD_WEBHOOK != ''
+        run: |
+          UNIT_STATUS="${{ needs.trigger-integration-tests.outputs.test_status }}"
+          TRIVY_STATUS="${{ needs.container_pipeline.outputs.trivy_status }}"
+          GITLEAKS_STATUS="${{ needs.container_pipeline.outputs.gitleaks_status }}"
 
-  #         FAILED_STAGE=""
-  #         REASON=""
+          FAILED_STAGE=""
+          REASON=""
 
-  #         if [ "${{ needs.trigger-integration-tests.result }}" = "failure" ]; then
-  #           FAILED_STAGE="Unit Tests"
-  #           REASON="Unit test pass percentage was below the required threshold."
-  #         elif [ "${{ needs.container_pipeline.result }}" = "failure" ]; then
-  #           FAILED_STAGE="Container Pipeline"
-  #           if [ "$TRIVY_STATUS" = "FAILED" ]; then
-  #             REASON="Trivy found actionable vulnerabilities in the image."
-  #           elif [ "$GITLEAKS_STATUS" = "FAILED" ]; then
-  #             REASON="Gitleaks detected a secret in the commit history."
-  #           else
-  #             REASON="Docker image build failed."
-  #           fi
-  #         elif [ "${{ needs.deploy.result }}" = "failure" ]; then
-  #           FAILED_STAGE="Deploy To EKS"
-  #           REASON="Deployment failed, or rollout did not become healthy within the 5 minute timeout."
-  #         elif [ "${{ needs.promote_to_production.result }}" = "failure" ]; then
-  #           FAILED_STAGE="Promote To Production Registry"
-  #           REASON="Could not pull the staging image or push it to the production registry."
-  #         fi
+          if [ "${{ needs.trigger-integration-tests.result }}" = "failure" ]; then
+            FAILED_STAGE="Unit Tests"
+            REASON="Unit test pass percentage was below the required threshold."
+          elif [ "${{ needs.container_pipeline.result }}" = "failure" ]; then
+            FAILED_STAGE="Container Pipeline"
+            if [ "$TRIVY_STATUS" = "FAILED" ]; then
+              REASON="Trivy found actionable vulnerabilities in the image."
+            elif [ "$GITLEAKS_STATUS" = "FAILED" ]; then
+              REASON="Gitleaks detected a secret in the commit history."
+            else
+              REASON="Docker image build failed."
+            fi
+          elif [ "${{ needs.deploy.result }}" = "failure" ]; then
+            FAILED_STAGE="Deploy To EKS"
+            REASON="Deployment failed, or rollout did not become healthy within the 5 minute timeout."
+          elif [ "${{ needs.promote_to_production.result }}" = "failure" ]; then
+            FAILED_STAGE="Promote To Production Registry"
+            REASON="Could not pull the staging image or push it to the production registry."
+          fi
 
-  #         if [ -n "$FAILED_STAGE" ]; then
-  #           CONTENT=$(cat <<EOF
-  #         ❌ **Pipeline Failed**
+          if [ -n "$FAILED_STAGE" ]; then
+            CONTENT=$(cat <<EOF
+          ❌ **Pipeline Failed**
 
-  #         Repository : ${{ github.repository }}
-  #         Branch/Tag : ${{ github.ref_name }}
+          Repository : ${{ github.repository }}
+          Branch/Tag : ${{ github.ref_name }}
 
-  #         Failed at : ${FAILED_STAGE}
-  #         Reason    : ${REASON}
+          Failed at : ${FAILED_STAGE}
+          Reason    : ${REASON}
 
-  #         Triggered By : ${{ github.actor }}
+          Triggered By : ${{ github.actor }}
 
-  #         🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  #         EOF
-  #           )
-  #           curl -sS -F "content=${CONTENT}" "$DISCORD_WEBHOOK"
-  #         else
-  #           if [ "${{ needs.deploy.result }}" = "success" ]; then
-  #             DEPLOY_STATUS="PASSED"
-  #           else
-  #             DEPLOY_STATUS="SKIPPED"
-  #           fi
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+            )
+            curl -sS -F "content=${CONTENT}" "$DISCORD_WEBHOOK"
+          else
+            if [ "${{ needs.deploy.result }}" = "success" ]; then
+              DEPLOY_STATUS="PASSED"
+            else
+              DEPLOY_STATUS="SKIPPED"
+            fi
 
-  #           UNIT_REPORT_STATUS="Not available"
-  #           [ -f reports/unit-test/unit-test-report.txt ] && UNIT_REPORT_STATUS="Attached"
+            UNIT_REPORT_STATUS="Not available"
+            [ -f reports/unit-test/unit-test-report.txt ] && UNIT_REPORT_STATUS="Attached"
 
-  #           TRIVY_REPORT_STATUS="Not available"
-  #           [ -f reports/trivy/trivy-report.txt ] && TRIVY_REPORT_STATUS="Attached"
+            TRIVY_REPORT_STATUS="Not available"
+            [ -f reports/trivy/trivy-report.txt ] && TRIVY_REPORT_STATUS="Attached"
 
-  #           CONTENT=$(cat <<EOF
-  #         🚀 **Deployment Report**
+            CONTENT=$(cat <<EOF
+          🚀 **Deployment Report**
 
-  #         Repository : ${{ github.repository }}
-  #         Branch/Tag : ${{ github.ref_name }}
+          Repository : ${{ github.repository }}
+          Branch/Tag : ${{ github.ref_name }}
 
-  #         Deployment : ${DEPLOY_STATUS}
+          Deployment : ${DEPLOY_STATUS}
 
-  #         Unit Test Report : ${UNIT_REPORT_STATUS}
-  #         Trivy Report     : ${TRIVY_REPORT_STATUS}
+          Unit Test Report : ${UNIT_REPORT_STATUS}
+          Trivy Report     : ${TRIVY_REPORT_STATUS}
 
-  #         Triggered By : ${{ github.actor }}
+          Triggered By : ${{ github.actor }}
 
-  #         🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-  #         EOF
-  #           )
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+            )
 
-  #           CURL_ARGS=(-sS -F "content=${CONTENT}")
-  #           [ -f reports/unit-test/unit-test-report.txt ] && CURL_ARGS+=(-F "file1=@reports/unit-test/unit-test-report.txt")
-  #           [ -f reports/trivy/trivy-report.txt ] && CURL_ARGS+=(-F "file2=@reports/trivy/trivy-report.txt")
+            CURL_ARGS=(-sS -F "content=${CONTENT}")
+            [ -f reports/unit-test/unit-test-report.txt ] && CURL_ARGS+=(-F "file1=@reports/unit-test/unit-test-report.txt")
+            [ -f reports/trivy/trivy-report.txt ] && CURL_ARGS+=(-F "file2=@reports/trivy/trivy-report.txt")
 
   #           curl "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK"
   #         fi
