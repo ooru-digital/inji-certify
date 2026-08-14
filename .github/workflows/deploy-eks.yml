@@ -73,7 +73,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, aws]
 
     env:
-      DISCORD_WEBHOOK: ${{ secrets.discord_webhook }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
 
     steps:
 

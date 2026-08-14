@@ -82,7 +82,7 @@ jobs:
       trivy_status: ${{ steps.trivy_report.outputs.status }}
       gitleaks_status: ${{ steps.gitleaks.outputs.status }}
     env:
-      DISCORD_WEBHOOK: ${{ secrets.discord_webhook }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
       LOCAL_IMAGE_NAME: certify-service
       TRIVY_CACHE_DIR: ${{ github.workspace }}/.cache/trivy
 

@@ -261,7 +261,7 @@ jobs:
       - name: Send Discord Notification
         if: always() && steps.test_outcome.outputs.test_status == 'failure'
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
         run: |
           if [ -z "$DISCORD_WEBHOOK" ]; then
             echo "DISCORD_WEBHOOK is not configured. Skipping notification."

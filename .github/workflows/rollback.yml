@@ -253,7 +253,7 @@ jobs:
       - name: Send Rollback Notification
         if: ${{ always() }}
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
 
         run: |
 

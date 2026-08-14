@@ -13,7 +13,7 @@ jobs:
     name: Alert - No Tag Pushed
     runs-on: ubuntu-latest
     env:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
     steps:
       - name: Send No Tag Alert
         if: env.DISCORD_WEBHOOK != ''
