@@ -254,6 +254,13 @@ jobs:
           mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
 
           echo "========================================"
+          echo "Building certify-integration-api..."
+          echo "========================================"
+
+          cd ../certify-integration-api
+          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
+          
+          echo "========================================"
           echo "Building certify-service..."
           echo "========================================"
 
