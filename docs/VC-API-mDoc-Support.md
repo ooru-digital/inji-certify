@@ -25,10 +25,17 @@ Format is selected from the onboarded credential configuration’s `credentialFo
 
 ```json
 {
-  "credentialSubject": {
-    "id": "did:jwk:...",
-    "family_name": "Doe",
-    "given_name": "Jane"
+  "credential": {
+    "@context": ["https://www.w3.org/ns/credentials/v2"],
+    "type": ["VerifiableCredential", "MobileDrivingLicence"],
+    "issuer": "did:web:example.com:issuer",
+    "validFrom": "2026-07-24T06:30:00Z",
+    "validUntil": "2031-07-24T06:30:00Z",
+    "credentialSubject": {
+      "id": "did:jwk:...",
+      "family_name": "Doe",
+      "given_name": "Jane"
+    }
   },
   "options": {
     "credentialConfigurationId": "mdl-config-id"
@@ -36,8 +43,9 @@ Format is selected from the onboarded credential configuration’s `credentialFo
 }
 ```
 
-For mdoc, `credentialSubject` is the **claims bag** matching Velocity placeholders in the onboarded `vcTemplate`. The holder device key should be supplied as `id` (`did:jwk:...`) when the MSO requires `deviceKeyInfo`.  
-For `ldp_vc`, `id` is optional (no device-key binding required by this API).
+For mdoc, `credential.credentialSubject` is the **claims bag** matching Velocity placeholders in the onboarded `vcTemplate`. The holder device key should be supplied as `id` (`did:jwk:...`) when the MSO requires `deviceKeyInfo`.  
+For `ldp_vc`, subject `id` is optional (no device-key binding required by this API).  
+`@context` / `type` / `issuer` may be sent for VCALM alignment; Certify still renders them from the onboarded template / issuer DID. Client `validFrom`/`validUntil` (when both present) are used when signing.
 
 ### Response — `ldp_vc`
 

@@ -145,7 +145,7 @@ sequenceDiagram
 |------|--------|
 | 1 | Validate `issuerId` (unique slug), display, signing algorithm |
 | 2 | Call `KeymanagerService` to generate issuer-specific signing keys |
-| 3 | Derive / assign `did_url` (e.g. `did:web:{host}/issuers/{issuerId}`) |
+| 3 | Assign client-provided `did_url` (e.g. `did:web:did.credissuer.com:{issuerId}`; client hosts the DID JSON) |
 | 4 | Set `credential_issuer_url` (e.g. `{domain}/v1/certify/issuers/{issuerId}`) |
 | 5 | Persist issuer in `issuer` table |
 | 6 | Return key references (`keyManagerAppId`, `keyManagerRefId`) for credential config onboarding |
@@ -339,7 +339,7 @@ Content-Type: application/json
   "authorizationServers": [
     "https://esignet.example.com"
   ],
-  "didUrl": "did:web:certify.example.com:issuers:farmer"
+  "didUrl": "did:web:did.credissuer.com:farmer"
 }
 ```
 
@@ -349,7 +349,7 @@ Content-Type: application/json
 | `display` | Yes | Metadata display (same shape as today) |
 | `signingConfig` | Yes | Drives Keymanager key generation |
 | `authorizationServers` | No | Defaults to global `mosip.certify.authorization.url` |
-| `didUrl` | No | Auto-derived if omitted: `did:web:{host}/issuers/{issuerId}` |
+| `didUrl` | Yes | Client-owned DID (e.g. `did:web:did.credissuer.com:farmer`). Not auto-derived from `mosip.certify.domain.url` (that property remains the Certify API base for status-list URLs). |
 
 ### 6.2 Response
 
@@ -359,12 +359,12 @@ Content-Type: application/json
   "status": "ACTIVE",
   "credentialIssuerUrl": "https://certify.example.com/v1/certify/issuers/farmer",
   "identifier": "https://certify.example.com/v1/certify",
-  "didUrl": "did:web:certify.example.com:issuers:farmer",
+  "didUrl": "did:web:did.credissuer.com:farmer",
   "keyManagerAppId": "CERTIFY_ISSUER_FARMER_ED25519",
   "keyManagerRefId": "ED25519_SIGN",
   "wellKnownEndpoints": {
     "openidCredentialIssuer": "https://certify.example.com/v1/certify/issuers/farmer/.well-known/openid-credential-issuer",
-    "didJson": "https://certify.example.com/v1/certify/issuers/farmer/.well-known/did.json"
+    "didJson": "https://certify.example.com/v1/certify/issuers/farmer/did.json"
   }
 }
 ```
@@ -676,7 +676,7 @@ keymanagerService.generateMasterKey(... CERTIFY_PARTNER_APP_ID ...);
 3. Build `keyManagerAppId` = `CERTIFY_ISSUER_{ISSUER_ID}_{ALGO}` (namespaced)
 4. Call `KeymanagerService.generateMasterKey("certificate", ...)` 
 5. Call `KeymanagerService.generateECSignKey(...)` or RSA equivalent per algo
-6. Derive `credential_issuer_url`, `identifier`, `didUrl`
+6. Assign client-provided `didUrl`; set `credential_issuer_url` / `identifier` from domain.url
 7. `INSERT INTO issuer`
 8. Return response with key refs and well-known URLs
 

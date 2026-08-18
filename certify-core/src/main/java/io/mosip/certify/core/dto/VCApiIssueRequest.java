@@ -7,21 +7,18 @@ package io.mosip.certify.core.dto;
 
 import io.mosip.certify.core.constants.ErrorConstants;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-
-import java.util.Map;
 
 @Data
 public class VCApiIssueRequest {
 
     /**
-     * REQUIRED. Claim values matching vcTemplate Velocity placeholders.
+     * REQUIRED. VCALM-aligned credential input (claims + optional validity / envelope fields).
      */
+    @Valid
     @NotNull(message = ErrorConstants.INVALID_REQUEST)
-    @NotEmpty(message = ErrorConstants.INVALID_REQUEST)
-    private Map<String, Object> credentialSubject;
+    private VCApiCredentialInput credential;
 
     /**
      * REQUIRED. Issuance options including credential configuration id.

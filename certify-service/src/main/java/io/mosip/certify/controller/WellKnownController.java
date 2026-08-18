@@ -43,8 +43,9 @@ public class WellKnownController {
     }
 
     /**
-     * did:web resolution target for per-issuer DIDs
-     * (e.g. did:web:host:v1:certify:issuers:iiitb → /v1/certify/issuers/iiitb/did.json).
+     * Certify fetch endpoint for per-issuer DID documents.
+     * {@code didUrl} is client-provided at onboard (e.g. {@code did:web:did.credissuer.com:iiitb});
+     * clients host the returned JSON for did:web resolution.
      */
     @GetMapping(value = "/issuers/{issuerId}/did.json", produces = "application/json")
     public Map<String, Object> getIssuerDIDDocument(@PathVariable String issuerId) {
