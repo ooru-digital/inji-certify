@@ -29,15 +29,4 @@ public interface StatusListIndexProvider {
      */
     Optional<Long> acquireIndex(String listId, Map<String, Object> options);
 
-    /**
-     * Releases a previously acquired index back to the available pool.
-     * Used to compensate when credential issuance fails after index assignment
-     * (e.g. signing failure) so the slot is not left permanently consumed.
-     *
-     * @param listId    status list credential id
-     * @param listIndex index previously returned by {@link #acquireIndex}
-     * @return true if the index was released (or was already available)
-     */
-    boolean releaseIndex(String listId, long listIndex);
-
 }

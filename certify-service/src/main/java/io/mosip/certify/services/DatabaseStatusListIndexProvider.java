@@ -1,7 +1,5 @@
 package io.mosip.certify.services;
 
-import io.mosip.certify.core.exception.CertifyException;
-import io.mosip.certify.entity.StatusListAvailableIndices;
 import io.mosip.certify.entity.StatusListCredential;
 import io.mosip.certify.repository.StatusListAvailableIndicesRepository;
 import io.mosip.certify.repository.StatusListCredentialRepository;
@@ -14,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.math.BigInteger;
-import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 
@@ -135,43 +132,6 @@ public class DatabaseStatusListIndexProvider implements StatusListIndexProvider 
         } catch (Exception e) {
             log.debug("No available index found or error in atomic claim for list: {}", listId);
             return null;
-        }
-    }
-
-    @Override
-    @Transactional
-    public boolean releaseIndex(String listId, long listIndex) {
-        try {
-            String sql = """
-                UPDATE status_list_available_indices
-                SET is_assigned = false,
-                    upd_dtimes = NOW()
-                WHERE status_list_credential_id = :listId
-                    AND list_index = :listIndex
-                    AND is_assigned = true
-                """;
-
-            Query query = entityManager.createNativeQuery(sql);
-            query.setParameter("listId", listId);
-            query.setParameter("listIndex", listIndex);
-            int updated = query.executeUpdate();
-
-            if (updated > 0) {
-                log.info("Released status list index {} for list {}", listIndex, listId);
-                // If list was marked FULL due to usable-capacity, allow reuse after release.
-                statusListCredentialRepository.findById(listId).ifPresent(statusList -> {
-                    if (StatusListCredential.CredentialStatus.FULL.equals(statusList.getCredentialStatus())) {
-                        statusList.setCredentialStatus(StatusListCredential.CredentialStatus.AVAILABLE);
-                        statusListCredentialRepository.save(statusList);
-                    }
-                });
-                return true;
-            }
-            log.debug("No assigned index {} to release for list {}", listIndex, listId);
-            return false;
-        } catch (Exception e) {
-            log.error("Failed to release status list index {} for list {}", listIndex, listId, e);
-            return false;
         }
     }
 }

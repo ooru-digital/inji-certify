@@ -1,7 +1,6 @@
 package io.mosip.certify.config;
 
 import io.mosip.certify.filter.VCApiKeyAuthFilter;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -14,7 +13,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
-@Slf4j
 @Configuration
 @Profile("!test")
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
