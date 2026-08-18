@@ -2,11 +2,11 @@ package io.mosip.certify.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.ProblemDetailsTypes;
 import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.constants.VCIErrorConstants;
 import io.mosip.certify.core.dto.ParsedAccessToken;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
-import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.services.VCApiIssuanceService;
 import org.junit.Test;
@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,18 +53,16 @@ public class VCApiControllerTest {
     public void issueCredential_returnsVerifiableCredential() throws Exception {
         VCApiIssueRequest request = validRequest();
 
-        VCApiIssueResponse response = new VCApiIssueResponse();
         Map<String, Object> vc = new LinkedHashMap<>();
         vc.put("type", List.of("VerifiableCredential", "FarmerCredential"));
-        response.setVerifiableCredential(vc);
-        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential"))).thenReturn(response);
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential"))).thenReturn(vc);
 
         mockMvc.perform(post("/vc-api/credentials/issue")
                         .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.verifiableCredential.type").isArray());
+                .andExpect(jsonPath("$.type").isArray());
     }
 
     @Test
@@ -75,7 +74,11 @@ public class VCApiControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(VCIErrorConstants.INVALID_REQUEST));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.MALFORMED_VALUE_ERROR))
+                .andExpect(jsonPath("$.title").value("Malformed Value Error"))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value(VCIErrorConstants.INVALID_REQUEST));
     }
 
     @Test
@@ -84,7 +87,9 @@ public class VCApiControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(VCIErrorConstants.INVALID_REQUEST));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.MALFORMED_VALUE_ERROR))
+                .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
@@ -94,7 +99,9 @@ public class VCApiControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(ErrorConstants.INVALID_REQUEST));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.MALFORMED_VALUE_ERROR))
+                .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
@@ -106,8 +113,11 @@ public class VCApiControllerTest {
                         .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "unknown-config")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value(ErrorConstants.CONFIG_NOT_FOUND_BY_ID));
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.MALFORMED_VALUE_ERROR))
+                .andExpect(jsonPath("$.detail").value("Config not found"))
+                .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
@@ -121,7 +131,74 @@ public class VCApiControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(validRequest())))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.MALFORMED_VALUE_ERROR))
+                .andExpect(jsonPath("$.detail").value("VC API supports only ldp_vc credential format"))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    public void issueCredential_whenMalformedJson_thenFail() throws Exception {
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{not-json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.PARSING_ERROR))
+                .andExpect(jsonPath("$.title").value("Parsing Error"))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    public void issueCredential_whenIssuanceFails_thenInternalServerError() throws Exception {
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
+                .thenThrow(new CertifyException(ErrorConstants.VC_ISSUANCE_FAILED, "Credential signing failed"));
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.ABOUT_BLANK))
+                .andExpect(jsonPath("$.title").value("Internal Server Error"))
+                .andExpect(jsonPath("$.detail").value("Credential signing failed"))
+                .andExpect(jsonPath("$.status").value(500));
+    }
+
+    @Test
+    public void issueCredential_whenUnsupportedOptions_thenFail() throws Exception {
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
+                .thenThrow(new CertifyException(ErrorConstants.UNKNOWN_OPTION_PROVIDED,
+                        "VC API issue options proof hints are not supported; omit options or pass an empty object"));
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.UNKNOWN_OPTION_PROVIDED))
+                .andExpect(jsonPath("$.title").value("Unknown Option Provided"))
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    public void issueCredential_whenValidUntilNotAfterValidFrom_thenRangeError() throws Exception {
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
+                .thenThrow(new CertifyException(ErrorConstants.INVALID_EXPIRY_RANGE,
+                        "validUntil must be later than validFrom"));
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.RANGE_ERROR))
+                .andExpect(jsonPath("$.title").value("Range Error"))
+                .andExpect(jsonPath("$.status").value(400));
     }
 
     private VCApiIssueRequest validRequest() {

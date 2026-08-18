@@ -1040,6 +1040,92 @@
 					"response": []
 				}
 			]
+		},
+		{
+			"name": "W3C VC API",
+			"item": [
+				{
+					"name": "Add VCDM 2.0 Farmer Config",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"credentialConfigKeyId\": \"{{vcApiCredentialConfigId}}\",\n  \"vcTemplate\": \"{\\n  \\\"@context\\\": [\\\"https://www.w3.org/ns/credentials/v2\\\", \\\"https://piyush7034.github.io/my-files/farmer.json\\\"],\\n  \\\"type\\\": [\\\"VerifiableCredential\\\", \\\"FarmerCredential\\\"],\\n  \\\"issuer\\\": \\\"${_issuer}\\\",\\n  \\\"validFrom\\\": \\\"${validFrom}\\\",\\n  \\\"credentialSubject\\\": {\\n    \\\"id\\\": \\\"${_holderId}\\\",\\n    \\\"fullName\\\": \\\"${fullName}\\\",\\n    \\\"mobileNumber\\\": \\\"${mobileNumber}\\\",\\n    \\\"dateOfBirth\\\": \\\"${dateOfBirth}\\\",\\n    \\\"gender\\\": \\\"${gender}\\\",\\n    \\\"state\\\": \\\"${state}\\\",\\n    \\\"district\\\": \\\"${district}\\\",\\n    \\\"villageOrTown\\\": \\\"${villageOrTown}\\\",\\n    \\\"postalCode\\\": \\\"${postalCode}\\\",\\n    \\\"landArea\\\": \\\"${landArea}\\\",\\n    \\\"landOwnershipType\\\": \\\"${landOwnershipType}\\\",\\n    \\\"primaryCropType\\\": \\\"${primaryCropType}\\\",\\n    \\\"secondaryCropType\\\": \\\"${secondaryCropType}\\\",\\n    \\\"farmerID\\\": \\\"${farmerID}\\\"\\n  }\\n}\",\n  \"contextURLs\": [\n    \"https://www.w3.org/ns/credentials/v2\",\n    \"https://piyush7034.github.io/my-files/farmer.json\"\n  ],\n  \"credentialTypes\": [\n    \"VerifiableCredential\",\n    \"FarmerCredential\"\n  ],\n  \"credentialFormat\": \"ldp_vc\",\n  \"didUrl\": \"{{issuerDid}}\",\n  \"keyManagerAppId\": \"CERTIFY_VC_SIGN_ED25519\",\n  \"keyManagerRefId\": \"ED25519_SIGN\",\n  \"signatureAlgo\": \"EdDSA\",\n  \"signatureCryptoSuite\": \"Ed25519Signature2020\",\n  \"scope\": \"mock_identity_vc_ldp\",\n  \"credentialStatusPurposes\": [\n    \"revocation\"\n  ],\n  \"metaDataDisplay\": [\n    {\n      \"name\": \"Farmer Credential (VC API)\",\n      \"locale\": \"en\",\n      \"logo\": {\n        \"uri\": \"https://mosip.github.io/inji-config/logos/agro-vertias-logo.png\",\n        \"alt_text\": \"Farmer Credential Logo\"\n      },\n      \"background_color\": \"#12107c\",\n      \"text_color\": \"#FFFFFF\"\n    }\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{certifyUrl}}/credential-configurations",
+							"host": [
+								"{{certifyUrl}}"
+							],
+							"path": [
+								"credential-configurations"
+							]
+						},
+						"description": "Onboard a VCDM 2.0 ldp_vc FarmerCredential config for W3C VC API issuance. Set issuerDid to the DID from GET /.well-known/did.json (same as mosip.certify.data-provider-plugin.did-url)."
+					},
+					"response": []
+				},
+				{
+					"name": "Issue Credential",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-API-Key",
+								"value": "{{vcApiKey}}",
+								"type": "text"
+							},
+							{
+								"key": "X-Credential-Configuration-Id",
+								"value": "{{vcApiCredentialConfigId}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"credential\": {\n    \"@context\": [\n      \"https://www.w3.org/ns/credentials/v2\",\n      \"https://piyush7034.github.io/my-files/farmer.json\"\n    ],\n    \"type\": [\n      \"VerifiableCredential\",\n      \"FarmerCredential\"\n    ],\n    \"issuer\": \"{{issuerDid}}\",\n    \"validFrom\": \"2026-01-01T00:00:00.000Z\",\n    \"validUntil\": \"2028-01-01T00:00:00.000Z\",\n    \"credentialSubject\": {\n      \"id\": \"did:example:holder\",\n      \"fullName\": \"Jane Doe\",\n      \"mobileNumber\": \"9876543210\",\n      \"dateOfBirth\": \"1990-01-01\",\n      \"gender\": \"Female\",\n      \"state\": \"Karnataka\",\n      \"district\": \"Bangalore\",\n      \"villageOrTown\": \"Bengaluru\",\n      \"postalCode\": \"560001\",\n      \"landArea\": \"2.5\",\n      \"landOwnershipType\": \"Owned\",\n      \"primaryCropType\": \"Rice\",\n      \"secondaryCropType\": \"Ragi\",\n      \"farmerID\": \"FRM-1001\"\n    }\n  },\n  \"options\": {}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{certifyUrl}}/vc-api/credentials/issue",
+							"host": [
+								"{{certifyUrl}}"
+							],
+							"path": [
+								"vc-api",
+								"credentials",
+								"issue"
+							]
+						},
+						"description": "Issue a signed VCDM 2.0 FarmerCredential via W3C VC API. Requires mosip.certify.vc-api.enabled=true and X-API-Key matching mosip.certify.vc-api.api-keys. Run Add VCDM 2.0 Farmer Config first, and set issuerDid to the onboarded config didUrl. validFrom and validUntil are optional; if omitted, Certify sets validFrom to now and validUntil to validFrom plus the configured expiry duration (default P730D)."
+					},
+					"response": []
+				}
+			]
 		}
 	],
 	"event": [
@@ -1174,6 +1260,18 @@
 		{
 			"key": "proof_cwt",
 			"value": ""
+		},
+		{
+			"key": "vcApiKey",
+			"value": "local-dev-secret"
+		},
+		{
+			"key": "vcApiCredentialConfigId",
+			"value": "FarmerCredentialVcApi"
+		},
+		{
+			"key": "issuerDid",
+			"value": "did:web:localhost"
 		}
 	]
 }

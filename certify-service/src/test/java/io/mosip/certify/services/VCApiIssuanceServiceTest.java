@@ -7,8 +7,8 @@ import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
 import io.mosip.certify.core.dto.VCApiIssueOptions;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
-import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.exception.CredentialConfigException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -36,7 +36,7 @@ public class VCApiIssuanceServiceTest {
     private CredentialConfigurationService credentialConfigurationService;
 
     @Mock
-    private VCApiCredentialIssuanceSupport vcApiCredentialIssuanceSupport;
+    private VCApiCredentialIssuer vcApiCredentialIssuer;
 
     @InjectMocks
     private VCApiIssuanceService vcApiIssuanceService;
@@ -48,15 +48,15 @@ public class VCApiIssuanceServiceTest {
         when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
 
         JsonLDObject signedVc = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
-        when(vcApiCredentialIssuanceSupport.issueValidatedCredential(eq(request.getCredential()), eq(config)))
-                .thenReturn(new VCApiCredentialIssuanceSupport.VCApiIssueResult(signedVc));
+        when(vcApiCredentialIssuer.issueValidatedCredential(eq(request.getCredential()), eq(config)))
+                .thenReturn(new VCApiCredentialIssuer.VCApiIssueResult(signedVc));
 
-        VCApiIssueResponse response = vcApiIssuanceService.issue(request, "farmer-credential");
+        Map<String, Object> response = vcApiIssuanceService.issue(request, "farmer-credential");
 
-        assertNotNull(response.getVerifiableCredential());
-        assertNotNull(response.getVerifiableCredential().get("type"));
+        assertNotNull(response);
+        assertNotNull(response.get("type"));
         verify(credentialConfigurationService).getCredentialConfigurationById("farmer-credential");
-        verify(vcApiCredentialIssuanceSupport).issueValidatedCredential(any(), eq(config));
+        verify(vcApiCredentialIssuer).issueValidatedCredential(any(), eq(config));
     }
 
     @Test
@@ -67,26 +67,38 @@ public class VCApiIssuanceServiceTest {
 
         JsonLDObject signedVc = JsonLDObject.fromJson(
                 "{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"],\"credentialSubject\":{\"fullName\":\"Jane Doe\"}}");
-        when(vcApiCredentialIssuanceSupport.issueValidatedCredential(eq(request.getCredential()), eq(config)))
-                .thenReturn(new VCApiCredentialIssuanceSupport.VCApiIssueResult(signedVc));
+        when(vcApiCredentialIssuer.issueValidatedCredential(eq(request.getCredential()), eq(config)))
+                .thenReturn(new VCApiCredentialIssuer.VCApiIssueResult(signedVc));
 
-        VCApiIssueResponse response = vcApiIssuanceService.issue(request, "farmer-credential");
+        Map<String, Object> response = vcApiIssuanceService.issue(request, "farmer-credential");
 
         assertEquals("Jane Doe",
-                ((Map<?, ?>) response.getVerifiableCredential().get("credentialSubject")).get("fullName"));
+                ((Map<?, ?>) response.get("credentialSubject")).get("fullName"));
     }
 
     @Test
-    public void should_propagateCertifyException_when_supportThrows() throws Exception {
+    public void should_propagateCertifyException_when_issuerThrows() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
         CredentialConfigurationDTO config = ldpConfig();
         when(credentialConfigurationService.getCredentialConfigurationById("unknown-config")).thenReturn(config);
-        when(vcApiCredentialIssuanceSupport.issueValidatedCredential(any(), eq(config)))
+        when(vcApiCredentialIssuer.issueValidatedCredential(any(), eq(config)))
                 .thenThrow(new CertifyException(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, "Config not found"));
 
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> vcApiIssuanceService.issue(request, "unknown-config"));
         assertEquals(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, ex.getErrorCode());
+    }
+
+    @Test
+    public void should_wrapCredentialConfigException_when_configMissing() throws Exception {
+        VCApiIssueRequest request = requestWithCredential();
+        when(credentialConfigurationService.getCredentialConfigurationById("unknown-config"))
+                .thenThrow(new CredentialConfigException(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, "Config not found"));
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> vcApiIssuanceService.issue(request, "unknown-config"));
+        assertEquals(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, ex.getErrorCode());
+        verify(vcApiCredentialIssuer, never()).issueValidatedCredential(any(), any());
     }
 
     @Test
@@ -97,13 +109,13 @@ public class VCApiIssuanceServiceTest {
         when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
 
         JsonLDObject signedVc = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
-        when(vcApiCredentialIssuanceSupport.issueValidatedCredential(eq(request.getCredential()), eq(config)))
-                .thenReturn(new VCApiCredentialIssuanceSupport.VCApiIssueResult(signedVc));
+        when(vcApiCredentialIssuer.issueValidatedCredential(eq(request.getCredential()), eq(config)))
+                .thenReturn(new VCApiCredentialIssuer.VCApiIssueResult(signedVc));
 
-        VCApiIssueResponse response = vcApiIssuanceService.issue(request, "farmer-credential");
+        Map<String, Object> response = vcApiIssuanceService.issue(request, "farmer-credential");
 
-        assertNotNull(response.getVerifiableCredential());
-        verify(vcApiCredentialIssuanceSupport).issueValidatedCredential(any(), eq(config));
+        assertNotNull(response.get("type"));
+        verify(vcApiCredentialIssuer).issueValidatedCredential(any(), eq(config));
     }
 
     @Test
@@ -115,9 +127,9 @@ public class VCApiIssuanceServiceTest {
 
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> vcApiIssuanceService.issue(request, "farmer-credential"));
-        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
+        assertEquals(ErrorConstants.UNKNOWN_OPTION_PROVIDED, ex.getErrorCode());
         verify(credentialConfigurationService, never()).getCredentialConfigurationById(any());
-        verify(vcApiCredentialIssuanceSupport, never()).issueValidatedCredential(any(), any());
+        verify(vcApiCredentialIssuer, never()).issueValidatedCredential(any(), any());
     }
 
     private VCApiIssueRequest requestWithCredential() {

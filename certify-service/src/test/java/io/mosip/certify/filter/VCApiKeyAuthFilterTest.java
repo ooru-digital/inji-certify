@@ -1,5 +1,8 @@
 package io.mosip.certify.filter;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.mosip.certify.core.constants.ProblemDetailsTypes;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.Before;
@@ -8,6 +11,7 @@ import org.junit.runner.RunWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -43,6 +47,7 @@ public class VCApiKeyAuthFilterTest {
         response = new MockHttpServletResponse();
         ReflectionTestUtils.setField(filter, "servletPath", SERVLET_PATH);
         ReflectionTestUtils.setField(filter, "apiKeysConfig", VALID_API_KEY + ",other-key");
+        ReflectionTestUtils.setField(filter, "objectMapper", new ObjectMapper());
         SecurityContextHolder.clearContext();
     }
 
@@ -96,6 +101,8 @@ public class VCApiKeyAuthFilterTest {
 
         verify(filterChain, never()).doFilter(request, response);
         assertEquals(401, response.getStatus());
+        assertTrue(response.getContentType().startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE));
+        assertUnauthorizedProblem(response);
         assertNull(SecurityContextHolder.getContext().getAuthentication());
     }
 
@@ -108,6 +115,8 @@ public class VCApiKeyAuthFilterTest {
 
         verify(filterChain, never()).doFilter(request, response);
         assertEquals(401, response.getStatus());
+        assertTrue(response.getContentType().startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE));
+        assertUnauthorizedProblem(response);
     }
 
     @Test
@@ -120,5 +129,14 @@ public class VCApiKeyAuthFilterTest {
 
         verify(filterChain).doFilter(request, response);
         assertEquals(200, response.getStatus());
+    }
+
+    private void assertUnauthorizedProblem(MockHttpServletResponse response) throws IOException {
+        JsonNode body = new ObjectMapper().readTree(response.getContentAsString());
+        assertEquals(ProblemDetailsTypes.ABOUT_BLANK, body.get("type").asText());
+        assertEquals("Unauthorized", body.get("title").asText());
+        assertEquals("Invalid or missing API key", body.get("detail").asText());
+        assertEquals(401, body.get("status").asInt());
+        assertEquals(SERVLET_PATH + "/vc-api/credentials/issue", body.get("instance").asText());
     }
 }

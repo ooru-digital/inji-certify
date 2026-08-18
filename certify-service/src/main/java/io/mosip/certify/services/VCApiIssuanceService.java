@@ -1,8 +1,3 @@
-/*
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/.
- */
 package io.mosip.certify.services;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -11,8 +6,8 @@ import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
 import io.mosip.certify.core.dto.VCApiIssueOptions;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
-import io.mosip.certify.core.dto.VCApiIssueResponse;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.exception.CredentialConfigException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -32,9 +27,9 @@ public class VCApiIssuanceService {
     private CredentialConfigurationService credentialConfigurationService;
 
     @Autowired
-    private VCApiCredentialIssuanceSupport vcApiCredentialIssuanceSupport;
+    private VCApiCredentialIssuer vcApiCredentialIssuer;
 
-    public VCApiIssueResponse issue(VCApiIssueRequest request, String credentialConfigurationId) {
+    public Map<String, Object> issue(VCApiIssueRequest request, String credentialConfigurationId) {
         log.info("VC API issue request for configuration: {}", credentialConfigurationId);
         rejectUnsupportedOptions(request.getOptions());
 
@@ -42,16 +37,16 @@ public class VCApiIssuanceService {
             CredentialConfigurationDTO config = credentialConfigurationService
                     .getCredentialConfigurationById(credentialConfigurationId);
 
-            VCApiCredentialIssuanceSupport.VCApiIssueResult result = vcApiCredentialIssuanceSupport
+            VCApiCredentialIssuer.VCApiIssueResult result = vcApiCredentialIssuer
                     .issueValidatedCredential(request.getCredential(), config);
 
-            VCApiIssueResponse response = new VCApiIssueResponse();
-            response.setVerifiableCredential(toCredentialMap(result.verifiableCredential()));
-            return response;
+            return toCredentialMap(result.verifiableCredential());
         } catch (JsonProcessingException e) {
             log.error("VC API issue request failed during configuration lookup: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
                     "Invalid JSON data encountered during credential issuance");
+        } catch (CredentialConfigException e) {
+            throw new CertifyException(e.getErrorCode(), e.getMessage());
         }
     }
 
@@ -71,7 +66,7 @@ public class VCApiIssuanceService {
                 || StringUtils.isNotBlank(options.getCreated())
                 || StringUtils.isNotBlank(options.getChallenge())
                 || StringUtils.isNotBlank(options.getDomain())) {
-            throw new CertifyException(ErrorConstants.INVALID_REQUEST,
+            throw new CertifyException(ErrorConstants.UNKNOWN_OPTION_PROVIDED,
                     "VC API issue options proof hints are not supported; omit options or pass an empty object");
         }
     }

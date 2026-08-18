@@ -13,7 +13,7 @@ call dated **20/7/2026**.
 | **Consumer** | Client (server-to-server) |
 | **Role of Certify** | Validate incoming unsigned credential against onboarded config, then **sign** |
 | **Input** | Full unsigned W3C `credential` (VCDM 2.0) + config id header |
-| **Output** | Signed `verifiableCredential` |
+| **Output** | Signed credential as the top-level JSON body |
 | **Auth** | API key (`X-API-Key`) for this contribution |
 
 ---
@@ -32,7 +32,7 @@ own `credential_config` before issuing:
 ### API surface
 
 - **Request/response = W3C-compliant**: endpoint path shape, request payload (`credential` + `options`),
-  and response (`verifiableCredential`) match the W3C VC API issue schema.
+  and response (signed credential as the top-level body) match the W3C VC API issue schema.
 - Internal validation logic remains Certify-specific.
 - Path: `POST /v1/certify/vc-api/credentials/issue` (prefixed under existing servlet path to avoid
   clashing with `/credentials/status`).
@@ -92,6 +92,7 @@ Content-Type: application/json
     "type": ["VerifiableCredential", "FarmerCredential"],
     "issuer": "did:web:example.issuer",
     "validFrom": "2026-01-01T00:00:00.000Z",
+    "validUntil": "2028-01-01T00:00:00.000Z",
     "credentialSubject": {
       "id": "did:example:holder",
       "fullName": "Jane Doe"
@@ -107,26 +108,30 @@ applied by Certify signing in this phase — a non-empty value is rejected with 
 do not receive a signed VC that silently omits requested proof fields. Config id is **not**
 taken from `options` — use `X-Credential-Configuration-Id`.
 
-`validFrom`, when present, is parsed for ledger issuance time. Preferred form is Certify’s
-UTC pattern `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'` (e.g. `2026-01-01T00:00:00.000Z`). The parser also
-accepts common ISO-8601 / VCDM forms via `Instant` parsing (with or without milliseconds,
+`validFrom` and `validUntil` follow [VCDM 2.0 validity period](https://www.w3.org/TR/vc-data-model-2.0/#validity-period):
+both are optional on the request. If `validUntil` is present, `validFrom` MUST exist and
+`validUntil` MUST be later than `validFrom`. [VCALM issue-credential](https://w3c.github.io/vcalm/#issue-credential)
+does not require either field; Certify fills gaps so the signed response always includes both:
+
+- omitted `validFrom` → current UTC time
+- omitted `validUntil` → `validFrom` + `mosip.certify.data-provider-plugin.vc-expiry-duration` (default `P730D`)
+
+Preferred form is Certify’s UTC pattern `yyyy-MM-dd'T'HH:mm:ss.SSS'Z'` (e.g. `2026-01-01T00:00:00.000Z`).
+The parser also accepts common ISO-8601 / VCDM forms via `Instant` parsing (with or without milliseconds,
 `Z` or numeric offsets such as `+05:30`; a missing zone is treated as UTC).
-`validUntil`, when present, is passed through on the credential and is not separately
-validated by this path — prefer the same UTC pattern for consistency.
 
 ### Response (`201 Created`)
 
 ```json
 {
-  "verifiableCredential": {
-    "@context": ["..."],
-    "type": ["..."],
-    "issuer": "did:web:...",
-    "validFrom": "...",
-    "credentialSubject": { "...": "..." },
-    "credentialStatus": { "...": "..." },
-    "proof": { "...": "..." }
-  }
+  "@context": ["..."],
+  "type": ["..."],
+  "issuer": "did:web:...",
+  "validFrom": "...",
+  "validUntil": "...",
+  "credentialSubject": { "...": "..." },
+  "credentialStatus": { "...": "..." },
+  "proof": { "...": "..." }
 }
 ```
 
@@ -136,10 +141,11 @@ validated by this path — prefer the same UTC pattern for consistency.
 |------|---------|
 | Missing / invalid API key | `401` |
 | Missing / blank `X-Credential-Configuration-Id` | `400` |
-| Unknown / inactive config id | `404` / `400` |
+| Unknown / inactive config id | `400` |
 | `credential` missing or empty | `400` |
 | `options` present with any non-blank proof hint | `400` |
-| Malformed `validFrom` (not Certify UTC / parseable ISO-8601) | `400` |
+| Malformed `validFrom` or `validUntil` (not Certify UTC / parseable ISO-8601) | `400` |
+| `validUntil` not later than `validFrom` | `400` |
 | `credential` already has `proof` | `400` |
 | Config `credentialFormat` ≠ `ldp_vc` | `400` |
 | `@context` does not include VCDM 2.0 URL | `400` |
@@ -148,6 +154,34 @@ validated by this path — prefer the same UTC pattern for consistency.
 | `credentialSubject` keys ≠ template `credentialSubject` keys | `400` |
 | Config missing `credentialStatusPurposes` (required for revocation) | `400` |
 | Signing / Key Manager / status list failure | `500` |
+
+Errors use [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457.html) /
+[VCALM ProblemDetails](https://w3c.github.io/vcalm/#dfn-problemdetails)
+(`Content-Type: application/problem+json`), not OpenID4VCI `VCError`
+(`error` / `error_description`). `/issuance/` is unchanged.
+
+`type` is a URL (REQUIRED). VCDM 2.0 types are used where the failure is about
+processing the credential document. HTTP-layer failures with no W3C issuance type
+use `about:blank` and the HTTP reason phrase as `title`.
+
+```json
+{
+  "type": "https://www.w3.org/TR/vc-data-model-2.0#MALFORMED_VALUE_ERROR",
+  "title": "Malformed Value Error",
+  "detail": "credentialSubject keys do not match onboarded vcTemplate",
+  "status": 400,
+  "instance": "/v1/certify/vc-api/credentials/issue"
+}
+```
+
+| Failure | HTTP | `type` |
+|---------|------|--------|
+| Unsupported / unknown issue `options` | `400` | `https://www.w3.org/TR/vcalm#UNKNOWN_OPTION_PROVIDED` |
+| Malformed JSON body | `400` | `https://www.w3.org/TR/vc-data-model-2.0#PARSING_ERROR` |
+| Malformed credential / request / config mismatch | `400` | `https://www.w3.org/TR/vc-data-model-2.0#MALFORMED_VALUE_ERROR` |
+| `validUntil` not later than `validFrom` | `400` | `https://www.w3.org/TR/vc-data-model-2.0#RANGE_ERROR` |
+| Missing / invalid API key | `401` | `about:blank` |
+| Signing / Key Manager / status-list failure | `500` | `about:blank` |
 
 Match semantics:
 
@@ -169,7 +203,7 @@ flowchart TB
     Client[Client]
     VCAPI["POST /vc-api/credentials/issue"]
     VAS[VCApiIssuanceService]
-    Support[VCApiCredentialIssuanceSupport]
+    Issuer[VCApiCredentialIssuer]
 
     subgraph engine [Reused Certify engine]
         CF[CredentialFactory / W3CJsonLD]
@@ -179,12 +213,12 @@ flowchart TB
     end
 
     Client -->|"API key + full credential + config header"| VCAPI --> VAS
-    VAS -->|"load config by X-Credential-Configuration-Id"| VAS --> Support
-    Support -->|validate context type issuer / VCDM2 / no proof| Support
-    Support --> ST
-    Support --> CF
+    VAS -->|"load config by X-Credential-Configuration-Id"| VAS --> Issuer
+    Issuer -->|validate context type issuer / VCDM2 / no proof| Issuer
+    Issuer --> ST
+    Issuer --> CF
     CF --> KM
-    Support --> LD
+    Issuer --> LD
 ```
 
 ```mermaid
@@ -210,15 +244,14 @@ sequenceDiagram
         Svc->>ST: addCredentialStatus (mandatory for revocation)
         Svc->>CF: addProof(unsignedCredentialJson)
         alt signing fails
-            Svc->>ST: releaseCredentialStatus
             Svc-->>C: error (no ledger row)
         else signing succeeds
             CF-->>Svc: signed VC
             opt ledger enabled
                 Svc->>LD: storeLedgerEntry
             end
-            Svc-->>Ctrl: VCApiIssueResponse
-            Ctrl-->>C: 201 verifiableCredential
+            Svc-->>Ctrl: signed credential map
+            Ctrl-->>C: 201 signed credential
         end
     end
 ```
@@ -235,10 +268,9 @@ sequenceDiagram
 7. Validate credentialSubject keys against onboarded vcTemplate
 8. Required: add credentialStatus (credentialStatusPurposes on config; enables revocation)
 9. W3CJsonLD.addProof using config signing fields (no Velocity rebuild)
-10. Validate signed credential is present (JsonLDObject); else fail and release status index
+10. Validate signed credential is present (JsonLDObject); else fail
 11. Optional: ledger metadata (only after valid signed credential)
-12. On any failure before completion: release status-list index; do not keep issuance state
-13. Return 201 + verifiableCredential
+12. Return 201 with the signed credential as the top-level JSON body
 ```
 
 **Not used for this API:** `DataProviderPlugin.fetchData`, Velocity evaluation of `vcTemplate` to rebuild
@@ -251,17 +283,19 @@ the envelope, eSignet / OAuth holder proof, cNonce.
 
 ```text
 certify-core/
-  └── io/mosip/certify/core/dto/
-        ├── VCApiIssueRequest.java
-        ├── VCApiIssueOptions.java
-        └── VCApiIssueResponse.java
+  └── io/mosip/certify/core/
+        ├── constants/ProblemDetailsTypes.java
+        └── dto/
+              ├── VCApiIssueRequest.java
+              ├── VCApiIssueOptions.java
+              └── ProblemDetails.java
 
 certify-service/
   └── io/mosip/certify/
         ├── controller/VCApiController.java
         ├── services/
         │     ├── VCApiIssuanceService.java
-        │     └── VCApiCredentialIssuanceSupport.java
+        │     └── VCApiCredentialIssuer.java
         ├── filter/VCApiKeyAuthFilter.java
         └── config/VCApiSecurityConfig.java
 ```
@@ -278,6 +312,9 @@ certify-service/
 | `mosip.certify.vc-api.enabled` | Feature flag (default `false`) |
 | `mosip.certify.vc-api.api-keys` | Comma-separated API keys |
 | CSRF ignore | `/vc-api/**` on `mosip.certify.security.ignore-csrf-urls` |
+
+Docker Compose (`docker-compose/docker-compose-injistack/config/certify-default.properties`) enables the API
+with `mosip.certify.vc-api.enabled=true` and `mosip.certify.vc-api.api-keys=local-dev-secret`.
 
 Prerequisite: credential type onboarded via `POST /credential-configurations` with matching
 `contextURLs`, `credentialTypes`, `didUrl`, and signing key fields (`keyManagerAppId`,

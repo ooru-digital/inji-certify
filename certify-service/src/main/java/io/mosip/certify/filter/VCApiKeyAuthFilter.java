@@ -1,18 +1,19 @@
-/*
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/.
- */
 package io.mosip.certify.filter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.mosip.certify.core.constants.ProblemDetailsTypes;
+import io.mosip.certify.core.dto.ProblemDetails;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -38,6 +40,9 @@ public class VCApiKeyAuthFilter extends OncePerRequestFilter {
     @Value("${mosip.certify.vc-api.api-keys:}")
     private String apiKeysConfig;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return !request.getRequestURI().startsWith(servletPath + "/vc-api/");
@@ -49,7 +54,7 @@ public class VCApiKeyAuthFilter extends OncePerRequestFilter {
         String apiKey = request.getHeader(API_KEY_HEADER);
         if (StringUtils.isBlank(apiKey) || !getConfiguredApiKeys().contains(apiKey.trim())) {
             log.warn("VC API request rejected: missing or invalid API key");
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid or missing API key");
+            writeUnauthorizedProblem(request, response);
             return;
         }
 
@@ -73,5 +78,18 @@ public class VCApiKeyAuthFilter extends OncePerRequestFilter {
                 .map(String::trim)
                 .filter(StringUtils::isNotBlank)
                 .collect(Collectors.toSet());
+    }
+
+    private void writeUnauthorizedProblem(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        ProblemDetails body = new ProblemDetails();
+        body.setType(ProblemDetailsTypes.ABOUT_BLANK);
+        body.setTitle(HttpStatus.UNAUTHORIZED.getReasonPhrase());
+        body.setDetail("Invalid or missing API key");
+        body.setStatus(HttpStatus.UNAUTHORIZED.value());
+        body.setInstance(request.getRequestURI());
+        response.setStatus(HttpStatus.UNAUTHORIZED.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        objectMapper.writeValue(response.getWriter(), body);
     }
 }

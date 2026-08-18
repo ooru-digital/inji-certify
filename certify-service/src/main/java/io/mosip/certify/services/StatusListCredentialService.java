@@ -312,45 +312,6 @@ public class StatusListCredentialService {
     }
 
     /**
-     * Compensates a prior {@link #addCredentialStatus} assignment when issuance fails
-     * after the index was claimed (for example, signing failure).
-     */
-    @Transactional
-    public void releaseCredentialStatus(JSONObject jsonObject) {
-        if (jsonObject == null || !jsonObject.has(VCDM2Constants.CREDENTIAL_STATUS)) {
-            return;
-        }
-        try {
-            JSONObject credentialStatus = jsonObject.getJSONObject(VCDM2Constants.CREDENTIAL_STATUS);
-            String statusListCredentialUrl = credentialStatus.optString("statusListCredential", "");
-            String statusListIndex = credentialStatus.optString("statusListIndex", "");
-            if (StringUtils.isBlank(statusListCredentialUrl) || StringUtils.isBlank(statusListIndex)) {
-                return;
-            }
-            String listId = extractStatusListId(statusListCredentialUrl);
-            if (StringUtils.isBlank(listId)) {
-                log.warn("Unable to extract status list id from URL for compensation: {}", statusListCredentialUrl);
-                return;
-            }
-            long index = Long.parseLong(statusListIndex);
-            boolean released = indexProvider.releaseIndex(listId, index);
-            if (released) {
-                jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
-            }
-        } catch (Exception e) {
-            log.error("Failed to release credential status assignment after issuance failure", e);
-        }
-    }
-
-    private String extractStatusListId(String statusListCredentialUrl) {
-        int slash = statusListCredentialUrl.lastIndexOf('/');
-        if (slash < 0 || slash == statusListCredentialUrl.length() - 1) {
-            return null;
-        }
-        return statusListCredentialUrl.substring(slash + 1);
-    }
-
-    /**
      * Helper method to add a proof to a VC and handle the result.
      */
     private String addProofAndHandleResult(JSONObject vcDocument, String errorConstant) throws CertifyException {

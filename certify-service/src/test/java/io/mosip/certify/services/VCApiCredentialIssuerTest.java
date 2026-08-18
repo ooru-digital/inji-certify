@@ -37,14 +37,15 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 @RunWith(MockitoJUnitRunner.class)
-public class VCApiCredentialIssuanceSupportTest {
+public class VCApiCredentialIssuerTest {
 
     private static final String DID_URL = "did:web:test.issuer";
 
     @InjectMocks
-    private VCApiCredentialIssuanceSupport support;
+    private VCApiCredentialIssuer vcApiCredentialIssuer;
 
     @Mock
     private CredentialFactory credentialFactory;
@@ -57,7 +58,8 @@ public class VCApiCredentialIssuanceSupportTest {
 
     @Before
     public void setUp() {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", false);
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "isLedgerEnabled", false);
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "defaultExpiryDuration", "P730D");
     }
 
     @Test
@@ -66,7 +68,7 @@ public class VCApiCredentialIssuanceSupportTest {
         credential.put("proof", Map.of("type", "DataIntegrityProof"));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(credential, ldpConfig()));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, ldpConfig()));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -76,7 +78,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setCredentialFormat(VCFormats.DC_SD_JWT);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT, ex.getErrorCode());
     }
 
@@ -86,7 +88,7 @@ public class VCApiCredentialIssuanceSupportTest {
         credential.put("@context", List.of("https://www.w3.org/2018/credentials/v1"));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(credential, ldpConfig()));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, ldpConfig()));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -96,7 +98,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setContextURLs(List.of(VCDM2Constants.URL, "https://example.org/missing-context"));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -106,7 +108,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setCredentialTypes(List.of("VerifiableCredential", "OtherCredential"));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -116,7 +118,7 @@ public class VCApiCredentialIssuanceSupportTest {
         credential.put("issuer", "did:web:other.issuer");
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(credential, ldpConfig()));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, ldpConfig()));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -126,7 +128,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setCredentialStatusPurposes(null);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
         verify(statusListCredentialService, never()).addCredentialStatus(any(), anyString());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
@@ -145,18 +147,17 @@ public class VCApiCredentialIssuanceSupportTest {
         when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenAnswer(invocation -> result);
 
-        VCApiCredentialIssuanceSupport.VCApiIssueResult issued =
-                support.issueValidatedCredential(validCredential(), config);
+        VCApiCredentialIssuer.VCApiIssueResult issued =
+                vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config);
 
         assertNotNull(issued.verifiableCredential());
         verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
-        verify(statusListCredentialService, never()).releaseCredentialStatus(any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
     }
 
     @Test
     public void should_storeLedgerAfterSigning_when_ledgerEnabled() throws Exception {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
 
         W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
@@ -169,19 +170,18 @@ public class VCApiCredentialIssuanceSupportTest {
         when(ledgerUtils.extractIndexedAttributes(any())).thenReturn(Map.of());
         when(ledgerUtils.extractCredentialStatusDetails(any())).thenReturn(null);
 
-        support.issueValidatedCredential(validCredential(), config);
+        vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config);
 
         InOrder order = inOrder(statusListCredentialService, credentialBean, credentialLedgerService);
         order.verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
         order.verify(credentialBean).addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString());
         order.verify(credentialLedgerService).storeLedgerEntry(eq("http://example.gov/credentials/1"), eq(DID_URL),
                 anyString(), any(), any(), any());
-        verify(statusListCredentialService, never()).releaseCredentialStatus(any());
     }
 
     @Test
-    public void should_releaseStatusAndSkipLedger_when_signingFails() throws Exception {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+    public void should_skipLedger_when_signingFails() throws Exception {
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
 
         W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
@@ -190,17 +190,16 @@ public class VCApiCredentialIssuanceSupportTest {
                 .thenThrow(new CertifyException(ErrorConstants.INVALID_REQUEST, "signing failed"));
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
 
         verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
-        verify(statusListCredentialService).releaseCredentialStatus(any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    public void should_releaseStatusAndSkipLedger_when_signedCredentialMissing() throws Exception {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+    public void should_skipLedger_when_signedCredentialMissing() throws Exception {
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
 
         W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
@@ -211,39 +210,11 @@ public class VCApiCredentialIssuanceSupportTest {
                 .thenAnswer(invocation -> result);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.VC_ISSUANCE_FAILED, ex.getErrorCode());
 
         verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
-        verify(statusListCredentialService).releaseCredentialStatus(any());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
-    }
-
-    @Test
-    public void should_releaseStatus_when_ledgerWriteFails() throws Exception {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
-        CredentialConfigurationDTO config = ldpConfig();
-
-        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
-        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
-        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
-        VCResult<JsonLDObject> result = new VCResult<>();
-        result.setCredential(signed);
-        when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
-                .thenAnswer(invocation -> result);
-        when(ledgerUtils.extractIndexedAttributes(any())).thenReturn(Map.of());
-        when(ledgerUtils.extractCredentialStatusDetails(any())).thenReturn(null);
-        org.mockito.Mockito.doThrow(new CertifyException(ErrorConstants.LEDGER_ENTRY_FAILED, "ledger failed"))
-                .when(credentialLedgerService)
-                .storeLedgerEntry(any(), any(), any(), any(), any(), any());
-
-        CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
-        assertEquals(ErrorConstants.LEDGER_ENTRY_FAILED, ex.getErrorCode());
-
-        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
-        verify(credentialLedgerService).storeLedgerEntry(any(), any(), any(), any(), any(), any());
-        verify(statusListCredentialService).releaseCredentialStatus(any());
     }
 
     @Test
@@ -257,7 +228,7 @@ public class VCApiCredentialIssuanceSupportTest {
         credential.put("credentialSubject", subject);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(credential, config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 
@@ -283,21 +254,82 @@ public class VCApiCredentialIssuanceSupportTest {
         when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenAnswer(invocation -> result);
 
-        assertNotNull(support.issueValidatedCredential(credential, config).verifiableCredential());
+        assertNotNull(vcApiCredentialIssuer.issueValidatedCredential(credential, config).verifiableCredential());
         verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
     }
 
     @Test
     public void should_throwInvalidRequestAndSkipSideEffects_when_validFromMalformed() {
-        ReflectionTestUtils.setField(support, "isLedgerEnabled", true);
+        ReflectionTestUtils.setField(vcApiCredentialIssuer, "isLedgerEnabled", true);
         CredentialConfigurationDTO config = ldpConfig();
         Map<String, Object> credential = validCredential();
         credential.put("validFrom", "not-a-timestamp");
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(credential, config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
         verify(credentialLedgerService, never()).storeLedgerEntry(any(), any(), any(), any(), any(), any());
+        verify(credentialFactory, never()).getCredential(anyString());
+    }
+
+    @Test
+    public void should_defaultValidUntil_when_omittedFromRequest() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(signed);
+        ArgumentCaptor<String> unsignedCaptor = ArgumentCaptor.forClass(String.class);
+        when(credentialBean.addProof(unsignedCaptor.capture(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+
+        assertNotNull(vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config).verifiableCredential());
+
+        org.json.JSONObject signedPayload = new org.json.JSONObject(unsignedCaptor.getValue());
+        assertEquals("2026-01-01T00:00:00.000Z", signedPayload.getString(VCDM2Constants.VALID_FROM));
+        assertEquals("2028-01-01T00:00:00.000Z", signedPayload.getString(VCDM2Constants.VALID_UNTIL));
+    }
+
+    @Test
+    public void should_keepProvidedValidUntil_when_afterValidFrom() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        Map<String, Object> credential = validCredential();
+        credential.put("validUntil", "2026-06-01T00:00:00.000Z");
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(signed);
+        ArgumentCaptor<String> unsignedCaptor = ArgumentCaptor.forClass(String.class);
+        when(credentialBean.addProof(unsignedCaptor.capture(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+
+        assertNotNull(vcApiCredentialIssuer.issueValidatedCredential(credential, config).verifiableCredential());
+
+        org.json.JSONObject signedPayload = new org.json.JSONObject(unsignedCaptor.getValue());
+        assertEquals("2026-06-01T00:00:00.000Z", signedPayload.getString(VCDM2Constants.VALID_UNTIL));
+    }
+
+    @Test
+    public void should_throwInvalidExpiryRange_when_validUntilNotAfterValidFrom() {
+        Map<String, Object> credential = validCredential();
+        credential.put("validUntil", "2025-01-01T00:00:00.000Z");
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, ldpConfig()));
+        assertEquals(ErrorConstants.INVALID_EXPIRY_RANGE, ex.getErrorCode());
+        verify(credentialFactory, never()).getCredential(anyString());
+    }
+
+    @Test
+    public void should_throwInvalidRequest_when_validUntilMalformed() {
+        Map<String, Object> credential = validCredential();
+        credential.put("validUntil", "not-a-timestamp");
+
+        CertifyException ex = assertThrows(CertifyException.class,
+                () -> vcApiCredentialIssuer.issueValidatedCredential(credential, ldpConfig()));
+        assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
         verify(credentialFactory, never()).getCredential(anyString());
     }
 
@@ -307,7 +339,7 @@ public class VCApiCredentialIssuanceSupportTest {
         config.setVcTemplate(null);
 
         CertifyException ex = assertThrows(CertifyException.class,
-                () -> support.issueValidatedCredential(validCredential(), config));
+                () -> vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config));
         assertEquals(ErrorConstants.INVALID_REQUEST, ex.getErrorCode());
     }
 

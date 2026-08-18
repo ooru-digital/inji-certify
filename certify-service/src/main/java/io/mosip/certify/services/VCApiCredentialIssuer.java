@@ -1,8 +1,3 @@
-/*
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/.
- */
 package io.mosip.certify.services;
 
 import foundation.identity.jsonld.JsonLDObject;
@@ -31,10 +26,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -46,7 +43,7 @@ import java.util.Set;
 @Slf4j
 @Component
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
-public class VCApiCredentialIssuanceSupport {
+public class VCApiCredentialIssuer {
 
     private static final String CONTEXT = "@context";
     private static final String ISSUER = "issuer";
@@ -67,6 +64,9 @@ public class VCApiCredentialIssuanceSupport {
     @Value("#{${mosip.certify.issuer.ledger-enabled:true}}")
     private boolean isLedgerEnabled;
 
+    @Value("${mosip.certify.data-provider-plugin.vc-expiry-duration:P730D}")
+    private String defaultExpiryDuration;
+
     public VCApiIssueResult issueValidatedCredential(Map<String, Object> credential,
                                                      CredentialConfigurationDTO config) {
         validateNoProof(credential);
@@ -75,14 +75,13 @@ public class VCApiCredentialIssuanceSupport {
         validateAgainstVcTemplate(credential, config);
 
         JSONObject jsonObject = new JSONObject(credential);
-        // Validate timestamp before status-list / ledger / signing side effects.
-        LocalDateTime issuanceDate = parseIssuanceDateTime(resolveIssuanceTime(jsonObject));
+        // Apply/validate validFrom and validUntil before status-list / ledger / signing.
+        LocalDateTime issuanceDate = applyValidityPeriod(jsonObject);
 
         // Status is required for VC API so issued credentials are revocable.
         // Index is claimed before signing because credentialStatus is part of the signed payload.
         addCredentialStatus(jsonObject, config);
 
-        boolean compensateStatusOnFailure = true;
         try {
             Credential cred = credentialFactory.getCredential(VCFormats.LDP_VC)
                     .orElseThrow(() -> new CertifyException(VCIErrorConstants.UNSUPPORTED_CREDENTIAL_FORMAT));
@@ -104,17 +103,11 @@ public class VCApiCredentialIssuanceSupport {
             if (isLedgerEnabled) {
                 storeLedger(jsonObject, config, issuanceDate);
             }
-            // Disable compensation only after all required issuance side effects succeed.
-            compensateStatusOnFailure = false;
             return new VCApiIssueResult(signedCredential);
         } catch (JSONException e) {
             log.error("VC API credential signing failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
                     "Invalid JSON data encountered during credential issuance");
-        } finally {
-            if (compensateStatusOnFailure) {
-                statusListCredentialService.releaseCredentialStatus(jsonObject);
-            }
         }
     }
 
@@ -300,13 +293,57 @@ public class VCApiCredentialIssuanceSupport {
         statusListCredentialService.addCredentialStatus(jsonObject, purposes.getFirst());
     }
 
-    private String resolveIssuanceTime(JSONObject jsonObject) {
-        if (jsonObject.has(VCDM2Constants.VALID_FROM)
-                && StringUtils.isNotBlank(jsonObject.optString(VCDM2Constants.VALID_FROM))) {
-            return jsonObject.getString(VCDM2Constants.VALID_FROM);
+    /**
+     * VCDM 2.0 treats {@code validFrom} / {@code validUntil} as optional, but if
+     * {@code validUntil} is present then {@code validFrom} MUST exist and
+     * {@code validUntil} MUST be later. Callers may omit either field; omitted
+     * {@code validFrom} is set to now, omitted {@code validUntil} is set to
+     * {@code validFrom} plus {@code mosip.certify.data-provider-plugin.vc-expiry-duration}.
+     */
+    private LocalDateTime applyValidityPeriod(JSONObject jsonObject) {
+        String validFromRaw = optionalDateString(jsonObject, VCDM2Constants.VALID_FROM);
+        LocalDateTime validFromTime;
+        if (validFromRaw == null) {
+            validFromTime = ZonedDateTime.now(ZoneOffset.UTC).toLocalDateTime();
+            jsonObject.put(VCDM2Constants.VALID_FROM, formatUtc(validFromTime));
+        } else {
+            validFromTime = parseValidityDateTime(validFromRaw, VCDM2Constants.VALID_FROM);
         }
-        return ZonedDateTime.now(ZoneOffset.UTC)
-                .format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
+
+        String validUntilRaw = optionalDateString(jsonObject, VCDM2Constants.VALID_UNTIL);
+        if (validUntilRaw == null) {
+            LocalDateTime validUntilTime = validFromTime.plus(parseExpiryDuration());
+            jsonObject.put(VCDM2Constants.VALID_UNTIL, formatUtc(validUntilTime));
+        } else {
+            LocalDateTime validUntilTime = parseValidityDateTime(validUntilRaw, VCDM2Constants.VALID_UNTIL);
+            if (!validUntilTime.isAfter(validFromTime)) {
+                throw new CertifyException(ErrorConstants.INVALID_EXPIRY_RANGE,
+                        "validUntil must be later than validFrom");
+            }
+        }
+        return validFromTime;
+    }
+
+    private String optionalDateString(JSONObject jsonObject, String field) {
+        if (!jsonObject.has(field) || jsonObject.isNull(field)) {
+            return null;
+        }
+        String value = jsonObject.optString(field, "").trim();
+        return StringUtils.isBlank(value) ? null : value;
+    }
+
+    private Duration parseExpiryDuration() {
+        try {
+            return Duration.parse(defaultExpiryDuration);
+        } catch (DateTimeParseException | NullPointerException e) {
+            log.warn("Incorrect expiry duration format in properties: {}. Using default P730D ~ 2Y",
+                    defaultExpiryDuration);
+            return Duration.parse("P730D");
+        }
+    }
+
+    private String formatUtc(LocalDateTime time) {
+        return time.atZone(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
     }
 
     private void storeLedger(JSONObject jsonObject, CredentialConfigurationDTO config, LocalDateTime issuanceDate) {
@@ -322,7 +359,7 @@ public class VCApiCredentialIssuanceSupport {
         log.info("VC API ledger entry stored for credentialType: {}", credentialType);
     }
 
-    private LocalDateTime parseIssuanceDateTime(String time) {
+    private LocalDateTime parseValidityDateTime(String time, String fieldName) {
         try {
             return LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
         } catch (Exception first) {
@@ -331,7 +368,7 @@ public class VCApiCredentialIssuanceSupport {
                 return java.time.Instant.parse(normalizeToInstant(time)).atZone(ZoneOffset.UTC).toLocalDateTime();
             } catch (Exception second) {
                 throw new CertifyException(ErrorConstants.INVALID_REQUEST,
-                        "Invalid validFrom; expected UTC pattern " + Constants.UTC_DATETIME_PATTERN
+                        "Invalid " + fieldName + "; expected UTC pattern " + Constants.UTC_DATETIME_PATTERN
                                 + " (e.g. 2026-01-01T00:00:00.000Z)");
             }
         }
