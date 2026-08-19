@@ -21,7 +21,11 @@ import io.mosip.kernel.keymanagerservice.repository.KeyPolicyRepository;
 import io.mosip.kernel.keymanagerservice.service.KeymanagerService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AuthorityKeyIdentifier;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.SubjectKeyIdentifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -35,6 +39,7 @@ import java.security.cert.X509Certificate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Provisions and rotates mdoc IACA / Document Signer material via MOSIP KeyManager.
@@ -44,6 +49,12 @@ import java.util.Optional;
 public class MdocPkiService {
 
     private static final String CREATED_BY = "certify-mdoc-pki";
+
+    /**
+     * SoftHSM/PKCS12 often ignores {@code uploadCertificate} and keeps ROOT-signed placeholders.
+     * Cache rebuilt self-signed IACA so export and signing share the same trust-anchor bytes.
+     */
+    private final ConcurrentHashMap<String, X509Certificate> rebuiltIacaByKey = new ConcurrentHashMap<>();
 
     @Autowired
     private KeymanagerService keymanagerService;
@@ -57,7 +68,7 @@ public class MdocPkiService {
     @Value("${mosip.certify.mdoc.iaca.key-policy.pre-expire-days:90}")
     private int iacaPreExpireDays;
 
-    @Value("${mosip.certify.mdoc.ds.key-policy.validity-days:730}")
+    @Value("${mosip.certify.mdoc.ds.key-policy.validity-days:457}")
     private int dsValidityDays;
 
     @Value("${mosip.certify.mdoc.ds.key-policy.pre-expire-days:60}")
@@ -83,6 +94,15 @@ public class MdocPkiService {
 
     @Value("${mosip.certify.mdoc.certificate.location:${mosip.kernel.keymanager.certificate.default.location:}}")
     private String location;
+
+    @Value("${mosip.certify.mdoc.certificate.issuer-alternative-name.email:}")
+    private String issuerAlternativeNameEmail;
+
+    @Value("${mosip.certify.mdoc.certificate.issuer-alternative-name.uri:}")
+    private String issuerAlternativeNameUri;
+
+    @Value("${mosip.certify.mdoc.certificate.crl-distribution-point-uri:}")
+    private String crlDistributionPointUri;
 
     /**
      * Creates IACA + DS EC P-256 keys, rebuilds IACA→DS certificate chain, uploads to KeyManager.
@@ -164,17 +184,146 @@ public class MdocPkiService {
     }
 
     /**
-     * On-demand DS rotation (ROOT-style): if the Document Signer is within the pre-expire window
-     * or past expiry, force-rotate and re-sign the DS certificate with the existing IACA before use.
-     * Does nothing when rotation is not due.
+     * Ensures ISO mdoc trust material is ready before signing:
+     * <ol>
+     *   <li>IACA is self-signed (not the KeyManager default ROOT-signed placeholder)</li>
+     *   <li>DS is issued by that IACA</li>
+     *   <li>DS is within its validity window (otherwise force-rotate)</li>
+     * </ol>
      */
     public void ensureDocumentSignerCurrent(Issuer issuer) {
+        ensureIacaDsTrustChain(issuer);
         if (!isDsRotationDue(issuer)) {
             return;
         }
         log.info("Document Signer near expiry/expired for issuer {}; rotating on demand",
                 issuer != null ? issuer.getIssuerId() : "null");
         rotateDocumentSigner(issuer);
+        // Rotation replaces the DS key; re-assert IACA→DS linkage after upload.
+        ensureIacaDsTrustChain(issuer);
+    }
+
+    /**
+     * Repairs KeyManager-stored mdoc certificates when they are still the default
+     * ROOT-signed placeholders created by {@code generateECSignKey}.
+     * <p>
+     * Multipaz / ISO 18013-5 readers trust the IACA subject, so DS.issuer must equal IACA.subject.
+     */
+    public void ensureIacaDsTrustChain(Issuer issuer) {
+        if (issuer == null
+                || StringUtils.isBlank(issuer.getMdocIacaAppId())
+                || StringUtils.isBlank(issuer.getMdocDsAppId())) {
+            return;
+        }
+        String iacaAppId = issuer.getMdocIacaAppId();
+        String dsAppId = issuer.getMdocDsAppId();
+        String iacaRefId = StringUtils.defaultIfBlank(issuer.getMdocIacaRefId(), Constants.EC_SECP256R1_SIGN);
+        String dsRefId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
+        String issuerId = issuer.getIssuerId();
+
+        try {
+            X509Certificate iacaCert = loadCertificate(iacaAppId, iacaRefId);
+            if (!isSelfSigned(iacaCert) || !MdocCertificateFactory.hasIsoIacaProfile(iacaCert)) {
+                log.warn("IACA cert for issuer {} needs rebuild (selfSigned={}, isoProfile={})",
+                        issuerId, isSelfSigned(iacaCert), MdocCertificateFactory.hasIsoIacaProfile(iacaCert));
+                rebuiltIacaByKey.remove(iacaAppId + "#" + iacaRefId);
+                X509Certificate rebuiltIaca = rebuildAndUploadIaca(iacaAppId, iacaRefId, issuerId);
+                try {
+                    iacaCert = assertPersistedMatches(iacaAppId, iacaRefId, rebuiltIaca);
+                } catch (CertifyException persistEx) {
+                    log.error("IACA rebuild uploaded but KeyManager still returns a different cert; "
+                            + "continuing with in-memory self-signed IACA for issuer {}: {}",
+                            issuerId, persistEx.getMessage());
+                    iacaCert = rebuiltIaca;
+                }
+            }
+
+            X509Certificate dsCert = loadCertificate(dsAppId, dsRefId);
+            if (!isIssuedBy(dsCert, iacaCert)
+                    || !verifiesWithIssuer(dsCert, iacaCert)
+                    || !MdocCertificateFactory.hasIsoDsProfile(dsCert)
+                    || !authorityKeyMatchesIssuerSki(dsCert, iacaCert)) {
+                log.warn("DS cert for issuer {} needs rebuild (issuedByIaca={}, isoProfile={})",
+                        issuerId,
+                        isIssuedBy(dsCert, iacaCert) && verifiesWithIssuer(dsCert, iacaCert),
+                        MdocCertificateFactory.hasIsoDsProfile(dsCert));
+                X509Certificate rebuiltDs = rebuildAndUploadDs(iacaAppId, dsAppId, iacaRefId, dsRefId, issuerId, iacaCert);
+                try {
+                    assertPersistedMatches(dsAppId, dsRefId, rebuiltDs);
+                } catch (CertifyException persistEx) {
+                    log.error("DS rebuild uploaded but KeyManager still returns a different cert; "
+                            + "signing will embed in-memory IACA-issued DS for issuer {}: {}",
+                            issuerId, persistEx.getMessage());
+                }
+            }
+        } catch (CertifyException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to ensure IACA→DS trust chain for issuer {}", issuerId, e);
+            throw new CertifyException(ErrorConstants.MDOC_PKI_PROVISIONING_FAILED,
+                    "Failed to ensure mdoc IACA→DS trust chain for issuer: " + issuerId);
+        }
+    }
+
+    /**
+     * Returns Document Signer private key + an IACA-issued DS certificate for COSE x5chain.
+     * Repairs KeyManager trust material first. If SoftHSM/DB still returns a ROOT-signed DS
+     * after upload, embeds the freshly rebuilt in-memory DS certificate so Multipaz can trust
+     * the exported IACA.
+     */
+    public MdocDsKeyMaterial getDocumentSignerKeyMaterial(Issuer issuer) {
+        if (issuer == null
+                || StringUtils.isBlank(issuer.getMdocIacaAppId())
+                || StringUtils.isBlank(issuer.getMdocDsAppId())) {
+            throw new CertifyException(ErrorConstants.MDOC_ISSUER_DS_NOT_CONFIGURED,
+                    "Issuer is missing mdoc IACA/DS KeyManager references");
+        }
+        ensureDocumentSignerCurrent(issuer);
+
+        String iacaAppId = issuer.getMdocIacaAppId();
+        String dsAppId = issuer.getMdocDsAppId();
+        String iacaRefId = StringUtils.defaultIfBlank(issuer.getMdocIacaRefId(), Constants.EC_SECP256R1_SIGN);
+        String dsRefId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
+
+        try {
+            PrivateKey dsPrivateKey = loadSignatureCertificate(dsAppId, dsRefId).getCertificateEntry().getPrivateKey();
+            X509Certificate iacaCert = loadCertificate(iacaAppId, iacaRefId);
+            // SoftHSM/DB may ignore uploadCertificate and keep ROOT-signed placeholders.
+            // Keep signing/export on the same in-memory rebuilt IACA so Multipaz trust matches x5chain.
+            if (!isSelfSigned(iacaCert) || !MdocCertificateFactory.hasIsoIacaProfile(iacaCert)) {
+                log.warn("Persisted IACA for issuer {} is incomplete after repair; "
+                                + "using freshly rebuilt self-signed IACA for DS issuance",
+                        issuer.getIssuerId());
+                rebuiltIacaByKey.remove(iacaAppId + "#" + iacaRefId);
+                iacaCert = rebuildAndUploadIaca(iacaAppId, iacaRefId, issuer.getIssuerId());
+            } else {
+                X509Certificate cached = rebuiltIacaByKey.get(iacaAppId + "#" + iacaRefId);
+                if (cached != null && MdocCertificateFactory.hasIsoIacaProfile(cached)) {
+                    iacaCert = cached;
+                }
+            }
+
+            X509Certificate dsCert = loadCertificate(dsAppId, dsRefId);
+            if (isIssuedBy(dsCert, iacaCert)
+                    && verifiesWithIssuer(dsCert, iacaCert)
+                    && MdocCertificateFactory.hasIsoDsProfile(dsCert)
+                    && authorityKeyMatchesIssuerSki(dsCert, iacaCert)) {
+                return new MdocDsKeyMaterial(dsPrivateKey, dsCert);
+            }
+
+            log.warn("Persisted DS cert for issuer {} is incomplete after repair; "
+                            + "embedding in-memory rebuilt DS certificate in x5chain",
+                    issuer.getIssuerId());
+            X509Certificate rebuiltDs = rebuildAndUploadDs(iacaAppId, dsAppId, iacaRefId, dsRefId,
+                    issuer.getIssuerId(), iacaCert);
+            return new MdocDsKeyMaterial(dsPrivateKey, rebuiltDs);
+        } catch (CertifyException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to resolve Document Signer key material for issuer {}", issuer.getIssuerId(), e);
+            throw new CertifyException(ErrorConstants.MDOC_PKI_PROVISIONING_FAILED,
+                    "Failed to resolve Document Signer key material for issuer: " + issuer.getIssuerId());
+        }
     }
 
     public int getDsPreExpireDays() {
@@ -199,10 +348,28 @@ public class MdocPkiService {
             throw new CertifyException(ErrorConstants.MDOC_IACA_NOT_CONFIGURED,
                     "Issuer is missing mdoc IACA KeyManager references; cannot export trust anchor");
         }
+        // Repair ROOT-signed placeholder IACA before handing it to verifiers.
+        if (StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
+            ensureIacaDsTrustChain(issuer);
+        }
         String iacaAppId = issuer.getMdocIacaAppId();
         String iacaRefId = StringUtils.defaultIfBlank(issuer.getMdocIacaRefId(), Constants.EC_SECP256R1_SIGN);
         try {
             X509Certificate iacaCert = loadCertificate(iacaAppId, iacaRefId);
+            if (!isSelfSigned(iacaCert) || !MdocCertificateFactory.hasIsoIacaProfile(iacaCert)) {
+                log.warn("Exporting freshly rebuilt ISO-profile IACA for issuer {} "
+                                + "(selfSigned={}, isoProfile={})",
+                        issuer.getIssuerId(),
+                        isSelfSigned(iacaCert),
+                        MdocCertificateFactory.hasIsoIacaProfile(iacaCert));
+                rebuiltIacaByKey.remove(iacaAppId + "#" + iacaRefId);
+                iacaCert = rebuildAndUploadIaca(iacaAppId, iacaRefId, issuer.getIssuerId());
+            } else {
+                X509Certificate cached = rebuiltIacaByKey.get(iacaAppId + "#" + iacaRefId);
+                if (cached != null && MdocCertificateFactory.hasIsoIacaProfile(cached)) {
+                    iacaCert = cached;
+                }
+            }
             return MdocCertificateFactory.toPem(iacaCert);
         } catch (CertifyException e) {
             throw e;
@@ -214,6 +381,18 @@ public class MdocPkiService {
     }
 
     private X509Certificate rebuildAndUploadIaca(String iacaAppId, String refId, String issuerId) throws Exception {
+        String cacheKey = iacaAppId + "#" + refId;
+        X509Certificate cached = rebuiltIacaByKey.get(cacheKey);
+        if (cached != null && isSelfSigned(cached) && MdocCertificateFactory.hasIsoIacaProfile(cached)) {
+            // Re-attempt persistence; still return the stable cached trust anchor.
+            try {
+                uploadCertificate(iacaAppId, refId, cached);
+            } catch (Exception e) {
+                log.debug("Re-upload of cached IACA for {} failed: {}", cacheKey, e.getMessage());
+            }
+            return cached;
+        }
+
         SignatureCertificate iacaMaterial = loadSignatureCertificate(iacaAppId, refId);
         PrivateKey iacaPrivateKey = iacaMaterial.getCertificateEntry().getPrivateKey();
         PublicKey iacaPublicKey = iacaMaterial.getCertificateEntry().getChain()[0].getPublicKey();
@@ -230,21 +409,23 @@ public class MdocPkiService {
                 location,
                 now,
                 now.plusDays(iacaValidityDays),
-                iacaMaterial.getProviderName());
+                iacaMaterial.getProviderName(),
+                profileOptions());
         uploadCertificate(iacaAppId, refId, iacaCert);
+        rebuiltIacaByKey.put(cacheKey, iacaCert);
         return iacaCert;
     }
 
-    private void rebuildAndUploadDs(
+    private X509Certificate rebuildAndUploadDs(
             String iacaAppId,
             String dsAppId,
             String refId,
             String issuerId,
             X509Certificate iacaCert) throws Exception {
-        rebuildAndUploadDs(iacaAppId, dsAppId, refId, refId, issuerId, iacaCert);
+        return rebuildAndUploadDs(iacaAppId, dsAppId, refId, refId, issuerId, iacaCert);
     }
 
-    private void rebuildAndUploadDs(
+    private X509Certificate rebuildAndUploadDs(
             String iacaAppId,
             String dsAppId,
             String iacaRefId,
@@ -261,6 +442,7 @@ public class MdocPkiService {
 
         X509Certificate dsCert = MdocCertificateFactory.buildDsCertificate(
                 iacaPrivateKey,
+                iacaCert.getPublicKey(),
                 dsPublicKey,
                 iacaSubject,
                 dsCnPrefix + issuerId,
@@ -271,8 +453,67 @@ public class MdocPkiService {
                 location,
                 now,
                 now.plusDays(dsValidityDays),
-                iacaMaterial.getProviderName());
+                iacaMaterial.getProviderName(),
+                profileOptions());
         uploadCertificate(dsAppId, dsRefId, dsCert);
+        return dsCert;
+    }
+
+    private MdocCertificateFactory.ProfileOptions profileOptions() {
+        return new MdocCertificateFactory.ProfileOptions(
+                issuerAlternativeNameEmail, issuerAlternativeNameUri, crlDistributionPointUri);
+    }
+
+    private static boolean authorityKeyMatchesIssuerSki(X509Certificate dsCert, X509Certificate iacaCert) {
+        try {
+            byte[] dsAkiExt = dsCert.getExtensionValue(Extension.authorityKeyIdentifier.getId());
+            byte[] iacaSkiExt = iacaCert.getExtensionValue(Extension.subjectKeyIdentifier.getId());
+            if (dsAkiExt == null || iacaSkiExt == null) {
+                return false;
+            }
+            AuthorityKeyIdentifier aki =
+                    AuthorityKeyIdentifier.getInstance(ASN1OctetString.getInstance(dsAkiExt).getOctets());
+            SubjectKeyIdentifier ski =
+                    SubjectKeyIdentifier.getInstance(ASN1OctetString.getInstance(iacaSkiExt).getOctets());
+            return aki.getKeyIdentifier() != null
+                    && java.util.Arrays.equals(aki.getKeyIdentifier(), ski.getKeyIdentifier());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private X509Certificate assertPersistedMatches(String appId, String refId, X509Certificate expected)
+            throws Exception {
+        X509Certificate persisted = loadCertificate(appId, refId);
+        // Compare issuer/subject — public keys alone are insufficient because ROOT-signed and
+        // IACA-signed DS certificates share the same keypair.
+        if (!persisted.getIssuerX500Principal().equals(expected.getIssuerX500Principal())
+                || !persisted.getSubjectX500Principal().equals(expected.getSubjectX500Principal())) {
+            throw new CertifyException(ErrorConstants.MDOC_PKI_PROVISIONING_FAILED,
+                    "KeyManager returned certificate with unexpected subject/issuer for " + appId + "/" + refId
+                            + " (subject=" + persisted.getSubjectX500Principal().getName()
+                            + ", issuer=" + persisted.getIssuerX500Principal().getName()
+                            + "; expected subject=" + expected.getSubjectX500Principal().getName()
+                            + ", expected issuer=" + expected.getIssuerX500Principal().getName() + ")");
+        }
+        return persisted;
+    }
+
+    private static boolean isSelfSigned(X509Certificate certificate) {
+        return certificate.getSubjectX500Principal().equals(certificate.getIssuerX500Principal());
+    }
+
+    private static boolean isIssuedBy(X509Certificate certificate, X509Certificate issuer) {
+        return certificate.getIssuerX500Principal().equals(issuer.getSubjectX500Principal());
+    }
+
+    private static boolean verifiesWithIssuer(X509Certificate certificate, X509Certificate issuer) {
+        try {
+            certificate.verify(issuer.getPublicKey());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private SignatureCertificate loadSignatureCertificate(String appId, String refId) {

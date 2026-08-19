@@ -95,6 +95,12 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
 
     private void ensureDefaultMdocPki(Issuer issuer) {
         if (StringUtils.isNotBlank(issuer.getMdocIacaAppId()) && StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
+            try {
+                // Existing refs may still point at KeyManager default ROOT-signed placeholders.
+                mdocPkiService.ensureIacaDsTrustChain(issuer);
+            } catch (Exception e) {
+                log.error("Failed to repair mdoc IACA→DS trust chain for default issuer", e);
+            }
             return;
         }
         try {

@@ -19,14 +19,20 @@ import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.mdoc.MdocDsKeyMaterial;
 import io.mosip.certify.mdoc.MdocLocalDsCoseSigner;
-import io.mosip.kernel.signature.dto.CoseSignRequestDto;
-import io.mosip.kernel.signature.service.CoseSignatureService;
+import io.mosip.kernel.core.keymanager.model.CertificateEntry;
+import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateResponseDto;
+import io.mosip.kernel.keymanagerservice.dto.SignatureCertificate;
+import io.mosip.kernel.keymanagerservice.service.KeymanagerService;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -34,6 +40,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.Map;
+import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,7 +62,10 @@ public class MDocProcessor {
     private MDocConfig mDocConfig;
 
     @Autowired
-    private CoseSignatureService coseSignatureService;
+    private KeymanagerService keymanagerService;
+
+    @Autowired
+    private MdocLocalDsCoseSigner mdocLocalDsCoseSigner;
 
     /**
      * Process templated JSON to create final mDoc structure
@@ -203,9 +213,9 @@ public class MDocProcessor {
                 new CborEncoder(innerBaos).encode(convertToDataItem(preprocessForCBOR(element)));
                 byte[] elementCbor = innerBaos.toByteArray();
 
-                // 2) Build Tag(24) DataItem for final structure
+                // 2) Build Tag(24) DataItem for final structure (IssuerSignedItemBytes)
                 ByteString tag24Value = new ByteString(elementCbor);
-                tag24Value.setTag(24);
+                tag24Value.setTag(Constants.CBOR_TAG_ENCODED_CBOR);
                 taggedElements.add(tag24Value);
 
                 // 3) Calculate digest over Tag(24) encoded bytes
@@ -362,7 +372,7 @@ public class MDocProcessor {
     }
 
     /**
-     * Creates a CBOR tagged date (tag 1004) for date-only strings
+     * Creates a CBOR tagged date (tag 1004) for date-only strings (full-date).
      */
     private static Map<String, Object> createCBORTaggedDate(String dateStr) {
         Map<String, Object> taggedDate = new HashMap<>();
@@ -372,7 +382,20 @@ public class MDocProcessor {
     }
 
     /**
-     * Creates the Mobile Security Object (MSO) structure
+     * Creates a CBOR tdate (tag 0) for RFC-3339 date-time strings used in MSO validityInfo.
+     */
+    private static Map<String, Object> createCBORTaggedTdate(String dateTimeStr) {
+        Map<String, Object> taggedTdate = new HashMap<>();
+        taggedTdate.put(Constants.__CBOR_TAG, Constants.CBOR_TAG_TDATE);
+        taggedTdate.put(Constants.__CBOR_VALUE, dateTimeStr);
+        return taggedTdate;
+    }
+
+    /**
+     * Creates the Mobile Security Object (MSO) structure.
+     * <p>
+     * {@code validityInfo} dates are stored as CBOR tdate markers (tag 0) so
+     * {@link #encodeToCBOR} emits ISO/IEC 18013-5–conformant encoding.
      */
     public Map<String, Object> createMobileSecurityObject
     (Map<String, Object> mDocJson, Map<String, Map<Integer, byte[]>> namespaceDigests) throws Exception {
@@ -388,21 +411,58 @@ public class MDocProcessor {
         mso.put("valueDigests", nameSpacesDigests);
         mso.put(Constants.DOCTYPE, mDocJson.get("_docType"));
 
-        // Create validity info with current timestamp
-        Map<String, Object> validityInfo = new HashMap<>();
-
-        if (mDocJson.containsKey(Constants.VALIDITY_INFO)) {
-            Map<String, Object> originalValidity = (Map<String, Object>) mDocJson.get(Constants.VALIDITY_INFO);
-            validityInfo.put(VCDM2Constants.VALID_FROM, originalValidity.get(VCDM2Constants.VALID_FROM));
-            validityInfo.put(VCDM2Constants.VALID_UNTIL, originalValidity.get(VCDM2Constants.VALID_UNTIL));
-        }
-        mso.put(Constants.VALIDITY_INFO, validityInfo);
+        mso.put(Constants.VALIDITY_INFO, buildValidityInfo(mDocJson));
 
         // Add device key info (placeholder - should be from wallet's PoP)
         Map<String, Object> deviceKeyInfo = createDeviceKeyInfo(mDocJson.get(Constants._HOLDER_ID));
         mso.put("deviceKeyInfo", deviceKeyInfo);
 
         return mso;
+    }
+
+    /**
+     * Builds ISO ValidityInfo with signed/validFrom/validUntil as CBOR tdates (tag 0).
+     */
+    private Map<String, Object> buildValidityInfo(Map<String, Object> mDocJson) {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN);
+        String signed = now.format(formatter);
+        String validFrom = signed;
+        String validUntil = now.plusYears(mDocConfig.getValidityPeriodYears()).format(formatter);
+
+        if (mDocJson.containsKey(Constants.VALIDITY_INFO)) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> originalValidity = (Map<String, Object>) mDocJson.get(Constants.VALIDITY_INFO);
+            Object from = originalValidity.get(VCDM2Constants.VALID_FROM);
+            Object until = originalValidity.get(VCDM2Constants.VALID_UNTIL);
+            if (from instanceof String fromStr && !fromStr.isBlank()) {
+                validFrom = fromStr;
+            }
+            if (until instanceof String untilStr && !untilStr.isBlank()) {
+                validUntil = untilStr;
+            }
+        }
+
+        Map<String, Object> validityInfo = new HashMap<>();
+        validityInfo.put(Constants.VALIDITY_SIGNED, createCBORTaggedTdate(signed));
+        validityInfo.put(VCDM2Constants.VALID_FROM, createCBORTaggedTdate(validFrom));
+        validityInfo.put(VCDM2Constants.VALID_UNTIL, createCBORTaggedTdate(validUntil));
+        return validityInfo;
+    }
+
+    /**
+     * Encodes MSO as MobileSecurityObjectBytes for use as COSE_Sign1 payload:
+     * {@code #6.24(bstr .cbor MobileSecurityObject)}.
+     *
+     * @return CBOR bytes of the tagged embedded MSO (to place in COSE payload bstr / Sig_structure)
+     */
+    public static byte[] encodeMsoAsCosePayload(Map<String, Object> mso) throws Exception {
+        byte[] msoCbor = encodeToCBOR(mso);
+        ByteString embeddedMso = new ByteString(msoCbor);
+        embeddedMso.setTag(Constants.CBOR_TAG_ENCODED_CBOR);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        new CborEncoder(baos).encode(embeddedMso);
+        return baos.toByteArray();
     }
 
     /**
@@ -453,28 +513,14 @@ public class MDocProcessor {
     }
 
     /**
-     * Signs the MSO using COSE_Sign1 structure via KeyManager CoseSignatureService.
-     * Embeds the Document Signer certificate in the unprotected x5chain header.
+     * Signs the MSO using the private key stored in KeyManager and the uploaded DS certificate.
+     * This avoids KeyManager's COSE wrapper embedding a stale ROOT-issued certificate and ensures
+     * {@code x5chain[0]} reflects the rebuilt DS certificate uploaded by Certify.
      */
     public byte[] signMSO(Map<String, Object> mso, String appID, String refID, String signAlgorithm) throws Exception {
         try {
-            byte[] msoCbor = encodeToCBOR(mso);
-
-            CoseSignRequestDto signRequest = new CoseSignRequestDto();
-
-            String base64UrlPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(msoCbor);
-
-            signRequest.setPayload(base64UrlPayload);
-            signRequest.setApplicationId(appID);
-            signRequest.setReferenceId(refID);
-            signRequest.setAlgorithm(signAlgorithm);
-
-            // Document Signer certificate in unprotected x5chain (label 33)
-            signRequest.setUnprotectedHeader(Map.of("includeCertificate", true));
-
-            String hexSignedData = coseSignatureService.coseSign1(signRequest).getSignedData();
-            return hexStringToByteArray(hexSignedData);
-
+            MdocDsKeyMaterial keyMaterial = loadDsKeyMaterialFromKeyManager(appID, refID);
+            return signMSOWithLocalDs(mso, keyMaterial, mdocLocalDsCoseSigner);
         } catch (CertifyException e) {
             log.error("Error during COSE signing: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.VC_SIGNING_ERROR, "COSE signing failed: " + e.getMessage());
@@ -483,36 +529,73 @@ public class MDocProcessor {
 
     /**
      * Signs the MSO using a local Document Signer key/cert (VC API mdoc path; no KeyManager).
+     * Payload is MobileSecurityObjectBytes ({@code #6.24(bstr .cbor MSO)}).
      */
     public byte[] signMSOWithLocalDs(Map<String, Object> mso, MdocDsKeyMaterial keyMaterial,
                                      MdocLocalDsCoseSigner localDsCoseSigner) throws Exception {
-        byte[] msoCbor = encodeToCBOR(mso);
-        return localDsCoseSigner.sign(msoCbor, keyMaterial);
+        byte[] cosePayload = encodeMsoAsCosePayload(mso);
+        return localDsCoseSigner.sign(cosePayload, keyMaterial);
     }
 
-    /**
-     * Converts hex string to byte array
-     */
-    private static byte[] hexStringToByteArray(String hexStr) {
-        int len = hexStr.length();
-        byte[] data = new byte[len / 2];
-        for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(hexStr.charAt(i), 16) << 4) + Character.digit(hexStr.charAt(i + 1), 16));
+    private MdocDsKeyMaterial loadDsKeyMaterialFromKeyManager(String appId, String refId) throws Exception {
+        SignatureCertificate signatureCertificate =
+                keymanagerService.getSignatureCertificate(appId, Optional.of(refId), ZonedDateTime.now(ZoneOffset.UTC).toString());
+        CertificateEntry<X509Certificate, PrivateKey> entry = signatureCertificate.getCertificateEntry();
+        if (entry == null || entry.getPrivateKey() == null) {
+            throw new CertifyException(ErrorConstants.VC_SIGNING_ERROR,
+                    "KeyManager returned incomplete DS private key material for " + appId + "/" + refId);
         }
-        return data;
+
+        KeyPairGenerateResponseDto certificateResponse = keymanagerService.getCertificate(appId, Optional.of(refId));
+        if (certificateResponse == null || certificateResponse.getCertificate() == null || certificateResponse.getCertificate().isBlank()) {
+            throw new CertifyException(ErrorConstants.VC_SIGNING_ERROR,
+                    "KeyManager returned no DS certificate for " + appId + "/" + refId);
+        }
+
+        CertificateFactory factory = CertificateFactory.getInstance("X.509");
+        X509Certificate dsCertificate = (X509Certificate) factory.generateCertificate(
+                new ByteArrayInputStream(certificateResponse.getCertificate().getBytes(StandardCharsets.UTF_8)));
+        return new MdocDsKeyMaterial(entry.getPrivateKey(), dsCertificate);
     }
 
     /**
-     * Creates the final IssuerSigned structure combining namespaces and issuerAuth
+     * Ensures COSE_Sign1 bytes are untagged. KeyManager may return CBOR tag 18
+     * ({@code COSE_Sign1_Tagged}); ISO/IEC 18013-5 requires untagged issuerAuth.
      */
+    static byte[] ensureUntaggedCoseSign1(byte[] coseSign1Bytes) throws IOException {
+        try {
+            var decoded = new CborDecoder(new java.io.ByteArrayInputStream(coseSign1Bytes)).decode();
+            if (decoded.isEmpty()) {
+                throw new IOException("Failed to decode COSE_Sign1: empty result");
+            }
+            DataItem cose = decoded.get(0);
+            if (cose.hasTag() && cose.getTag().getValue() == Constants.CBOR_TAG_COSE_SIGN1) {
+                cose.removeTag();
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                new CborEncoder(baos).encode(cose);
+                return baos.toByteArray();
+            }
+            return coseSign1Bytes;
+        } catch (CborException e) {
+            throw new IOException("Failed to normalize COSE_Sign1 tagging", e);
+        }
+    }
 
+    /**
+     * Creates the final IssuerSigned structure combining namespaces and issuerAuth.
+     * issuerAuth is always stored as an untagged COSE_Sign1 4-element array.
+     */
     public static Map<String, Object> createIssuerSignedStructure(Map<String, Object> processedNamespaces, byte[] signedMSO) throws IOException {
         try {
-            var di = new CborDecoder(new java.io.ByteArrayInputStream(signedMSO)).decode();
+            byte[] untagged = ensureUntaggedCoseSign1(signedMSO);
+            var di = new CborDecoder(new java.io.ByteArrayInputStream(untagged)).decode();
             if (di.isEmpty()) {
                 throw new IOException("Failed to decode COSE_Sign1: empty result");
             }
             DataItem cose = di.get(0);
+            if (cose.hasTag() && cose.getTag().getValue() == Constants.CBOR_TAG_COSE_SIGN1) {
+                cose.removeTag();
+            }
             Map<String, Object> out = new HashMap<>();
             out.put(Constants.NAMESPACES, processedNamespaces);
             out.put("issuerAuth", cose);

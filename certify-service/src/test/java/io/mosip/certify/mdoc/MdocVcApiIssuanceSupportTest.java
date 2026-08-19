@@ -27,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -206,15 +207,21 @@ public class MdocVcApiIssuanceSupportTest {
         Map<String, Object> mso = new HashMap<>();
         mso.put("docType", "org.iso.18013.5.1.mDL");
         when(mDocProcessor.createMobileSecurityObject(any(), any())).thenReturn(mso);
-        when(mDocProcessor.signMSO(eq(mso), eq("CERTIFY_DS_MDL_ISSUER"), eq("EC_SECP256R1_SIGN"), eq("ES256")))
+
+        X509Certificate dsCert = org.mockito.Mockito.mock(X509Certificate.class);
+        when(dsCert.getSubjectX500Principal()).thenReturn(new javax.security.auth.x500.X500Principal("CN=DS-mdl-issuer"));
+        MdocDsKeyMaterial keyMaterial = org.mockito.Mockito.mock(MdocDsKeyMaterial.class);
+        when(keyMaterial.certificate()).thenReturn(dsCert);
+        when(mdocPkiService.getDocumentSignerKeyMaterial(issuer)).thenReturn(keyMaterial);
+        when(mDocProcessor.signMSOWithLocalDs(eq(mso), eq(keyMaterial), eq(mdocLocalDsCoseSigner)))
                 .thenReturn(createMockCoseSign1());
 
         String result = support.issue(Map.of("family_name", "Doe"), config, issuer, DEFAULT_VALIDITY);
 
         assertNotNull(result);
         assertFalse(result.isBlank());
-        verify(mdocPkiService).ensureDocumentSignerCurrent(issuer);
-        verify(mDocProcessor).signMSO(eq(mso), eq("CERTIFY_DS_MDL_ISSUER"), eq("EC_SECP256R1_SIGN"), eq("ES256"));
+        verify(mdocPkiService).getDocumentSignerKeyMaterial(issuer);
+        verify(mDocProcessor).signMSOWithLocalDs(eq(mso), eq(keyMaterial), eq(mdocLocalDsCoseSigner));
         verify(mdocIssuerKeyCertLoader, org.mockito.Mockito.never()).load();
     }
 

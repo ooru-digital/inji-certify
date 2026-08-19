@@ -16,7 +16,7 @@ services:
       - "5433:5432"
 
   certify:
-    image: inji-certify-with-plugins-mdl:0.14.0-prod-latest
+    image: inji-certify-with-plugins-mdl:0.14.0-prod-latest-5
     user: root
     ports:
       - 8090:8090
