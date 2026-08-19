@@ -50,6 +50,12 @@ on:
         required: true
         type: string
 
+      deployment_configs_ref:
+        description: "Branch or tag of deployment-configs repository"
+        required: false
+        type: string
+        default: ""
+
     secrets:
       dockerhub_username:
         required: true
@@ -90,7 +96,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ooru-digital/deployment-configs
-          ref: main
+          ref: ${{ inputs.deployment_configs_ref }}
           path: deployment-configs
           token: ${{ secrets.deployment_configs_token || github.token }}
 

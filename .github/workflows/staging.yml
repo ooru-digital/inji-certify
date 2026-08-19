@@ -87,6 +87,7 @@ jobs:
       helm_chart_path: deployment-configs/helm/inji-certify-helm/helm/inji-certify
       unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
       trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
+      deployment_configs_ref: main
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}

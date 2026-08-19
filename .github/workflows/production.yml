@@ -180,8 +180,9 @@ jobs:
       eks_cluster_name: ${{ vars.PRODUCTION_EKS_CLUSTER_NAME }}
       kubernetes_namespace: ${{ vars.PRODUCTION_KUBERNETES_NAMESPACE }}
       docker_image: docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.promote.outputs.image_tag }}
-      helm_release_name: inji-certify-4152-repo
-      helm_chart_path: deployment-configs/helm/new-inji-certify
+      helm_release_name: inji-certify
+      helm_chart_path: deployment-configs/helm/inji-certify-helm/helm/inji-certify
+      deployment_configs_ref: production-main
       
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
