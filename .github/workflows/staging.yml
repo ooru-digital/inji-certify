@@ -83,8 +83,8 @@ jobs:
       eks_cluster_name: ${{ vars.STAGING_EKS_CLUSTER_NAME }}
       kubernetes_namespace: ${{ vars.STAGING_KUBERNETES_NAMESPACE }}
       docker_image: docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
-      helm_release_name: inji-certify
-      helm_chart_path: deployment-configs/helm/inji-certify-helm/helm/inji-certify
+      helm_release_name: inji-certify-4152-repo
+      helm_chart_path: deployment-configs/helm/new-inji-certify
       unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
       trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
     secrets:

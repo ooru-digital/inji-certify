@@ -28,13 +28,13 @@ on:
         description: "Helm release name"
         required: false
         type: string
-        default: ""
+        default: inji-certify-4152-repo
 
       helm_chart_path:
         description: "Helm chart path inside deployment-configs repository"
         required: false
         type: string
-        default: ""
+        default: deployment-configs/helm/new-inji-certify
 
       helm_values_file:
         description: "Helm values file"
