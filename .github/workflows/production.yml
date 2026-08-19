@@ -182,6 +182,8 @@ jobs:
       docker_image: docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.promote.outputs.image_tag }}
       helm_release_name: inji-certify-4152-repo
       helm_chart_path: deployment-configs/helm/new-inji-certify
+      deployment_configs_ref: production-main
+
       
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
