@@ -11,3 +11,4 @@ LABEL build_time=${BUILD_TIME}
 
 # copy all files under target/ to the plugins folder
 COPY ./target/*.jar ${loader_path_env}
+COPY credissuer-certify-integration-impl-0.2.1.jar ${loader_path_env}
