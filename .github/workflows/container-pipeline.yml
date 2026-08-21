@@ -267,10 +267,17 @@ jobs:
           cd ../certify-service
           mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
 
+          echo "========================================"
+          echo "Building certify-service-with-plugins..."
+          echo "========================================"
+
+          cd ../certify-service-with-plugins
+          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
+
       - name: Build Docker Image
         id: build_image
         run: |
-          cd certify-service
+          cd certify-service-with-plugins
           docker build \
             -f Dockerfile \
             -t "${LOCAL_IMAGE_NAME}:${{ steps.image_meta.outputs.image_tag }}" \
