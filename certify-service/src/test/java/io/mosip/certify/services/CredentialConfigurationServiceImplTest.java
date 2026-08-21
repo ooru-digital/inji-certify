@@ -8,6 +8,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.entity.attributes.ClaimsDisplayFieldsConfigs;
 import io.mosip.certify.entity.attributes.CredentialSubjectParameters;
 import io.mosip.certify.repository.CredentialConfigRepository;
+import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.CredentialConfigMapper;
 import io.mosip.certify.validators.credentialconfigvalidators.LdpVcCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.MsoMdocCredentialConfigValidator;
@@ -42,6 +43,9 @@ public class CredentialConfigurationServiceImplTest {
 
     @Mock
     private IssuerResolver issuerResolver;
+
+    @Mock
+    private IssuerRepository issuerRepository;
 
     @InjectMocks
     private CredentialConfigurationServiceImpl credentialConfigurationService;
@@ -92,7 +96,7 @@ public class CredentialConfigurationServiceImplTest {
         credentialConfigurationDTO.setKeyManagerRefId("TEST2019-REF");
         credentialConfigurationDTO.setCredentialSubjectDefinition(Map.of("name", new CredentialSubjectParametersDTO(List.of(new CredentialSubjectParametersDTO.Display("Full Name", "en")))));
 
-        ReflectionTestUtils.setField(credentialConfigurationService, "credentialIssuer", "http://example.com/");
+        ReflectionTestUtils.setField(credentialConfigurationService, "credentialIssuer", "http://localhost:8090/v1/certify");
         ReflectionTestUtils.setField(credentialConfigurationService, "authUrl", "http://auth.com");
         ReflectionTestUtils.setField(credentialConfigurationService, "servletPath", "v1/test");
         ReflectionTestUtils.setField(credentialConfigurationService, "pluginMode", "DataProvider");
@@ -117,6 +121,7 @@ public class CredentialConfigurationServiceImplTest {
         defaultIssuer.setDisplay(Collections.emptyList());
         when(issuerResolver.resolve(any())).thenReturn(defaultIssuer);
         when(issuerResolver.resolveIssuerId(any())).thenReturn("default");
+        when(issuerRepository.findById(any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -406,6 +411,51 @@ public class CredentialConfigurationServiceImplTest {
         // Verify no mapping calls
         verify(credentialConfigRepository).findByIssuerIdAndStatus(eq("default"), eq("active"));
         verify(credentialConfigMapper, never()).toDto((CredentialConfig) any());
+    }
+
+    @Test
+    public void fetchCredentialIssuerMetadata_listsAllTemplatesForIssuerAndExcludesOthers() {
+        Issuer iiitb = new Issuer();
+        iiitb.setIssuerId("iiitb-ac");
+        iiitb.setCredentialIssuerUrl("http://localhost:8090/v1/certify/iiitb-ac");
+        iiitb.setIdentifier("http://localhost:8090/v1/certify/iiitb-ac");
+        iiitb.setDidUrl("did:web:localhost:iiitb-ac");
+        iiitb.setStatus("active");
+        iiitb.setDisplay(Collections.emptyList());
+        when(issuerResolver.resolveIssuerId(any())).thenReturn("iiitb-ac");
+        when(issuerResolver.resolve(any())).thenReturn(iiitb);
+
+        CredentialConfig degree = new CredentialConfig();
+        degree.setCredentialConfigKeyId("DegreeCredential");
+        degree.setCredentialFormat("ldp_vc");
+        degree.setSignatureCryptoSuite("Ed25519Signature2020");
+        CredentialConfig transcript = new CredentialConfig();
+        transcript.setCredentialConfigKeyId("TranscriptCredential");
+        transcript.setCredentialFormat("ldp_vc");
+        transcript.setSignatureCryptoSuite("Ed25519Signature2020");
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("iiitb-ac"), eq("active")))
+                .thenReturn(List.of(degree, transcript));
+
+        CredentialConfigurationDTO degreeDto = new CredentialConfigurationDTO();
+        degreeDto.setCredentialFormat("ldp_vc");
+        degreeDto.setCredentialTypes(List.of("VerifiableCredential", "DegreeCredential"));
+        CredentialConfigurationDTO transcriptDto = new CredentialConfigurationDTO();
+        transcriptDto.setCredentialFormat("ldp_vc");
+        transcriptDto.setCredentialTypes(List.of("VerifiableCredential", "TranscriptCredential"));
+        when(credentialConfigMapper.toDto(degree)).thenReturn(degreeDto);
+        when(credentialConfigMapper.toDto(transcript)).thenReturn(transcriptDto);
+
+        CredentialIssuerMetadataDTO result =
+                credentialConfigurationService.fetchCredentialIssuerMetadata("iiitb-ac", "latest");
+
+        Assert.assertEquals("http://localhost:8090/v1/certify/iiitb-ac", result.getCredentialIssuer());
+        Assert.assertEquals("http://localhost:8090/v1/certify/issuance/credential", result.getCredentialEndpoint());
+        Assert.assertEquals(2, result.getCredentialConfigurationSupportedDTO().size());
+        Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("DegreeCredential"));
+        Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("TranscriptCredential"));
+        Assert.assertFalse(result.getCredentialConfigurationSupportedDTO().containsKey("FarmerCredential"));
+        verify(credentialConfigRepository).findByIssuerIdAndStatus(eq("iiitb-ac"), eq("active"));
+        verify(credentialConfigRepository, never()).findByIssuerIdAndStatus(eq("default"), eq("active"));
     }
 
     @Test

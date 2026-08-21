@@ -82,10 +82,21 @@ class WellKnownControllerTest {
         CredentialIssuerMetadataDTO mockMetadata = mock(CredentialIssuerMetadataDTO.class);
         when(credentialConfigurationService.fetchCredentialIssuerMetadata(eq("custom-issuer"), eq("latest")))
                 .thenReturn(mockMetadata);
-        mockMvc.perform(get("/.well-known/openid-credential-issuer?issuerId=custom-issuer"))
+        mockMvc.perform(get("/custom-issuer/.well-known/openid-credential-issuer"))
                 .andExpect(status().isOk());
         verify(credentialConfigurationService, times(1))
                 .fetchCredentialIssuerMetadata(eq("custom-issuer"), eq("latest"));
+    }
+
+    @Test
+    void getCredentialIssuerMetadata_queryIssuerIdIsIgnored() throws Exception {
+        CredentialIssuerMetadataDTO mockMetadata = mock(CredentialIssuerMetadataDTO.class);
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata(isNull(), eq("latest")))
+                .thenReturn(mockMetadata);
+        mockMvc.perform(get("/.well-known/openid-credential-issuer?issuerId=custom-issuer"))
+                .andExpect(status().isOk());
+        verify(credentialConfigurationService, times(1))
+                .fetchCredentialIssuerMetadata(isNull(), eq("latest"));
     }
 
     @Test

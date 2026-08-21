@@ -18,6 +18,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.CredentialConfigMapper;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import io.mosip.certify.validators.credentialconfigvalidators.LdpVcCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.MsoMdocCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.SdJwtCredentialConfigValidator;
@@ -470,10 +471,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     private void populateCommonMetadataFields(CredentialIssuerMetadataDTO metadata, Issuer issuer, String version) {
         metadata.setCredentialIssuer(issuer.getCredentialIssuerUrl());
         metadata.setAuthorizationServers(resolveAuthorizationServers(issuer));
-        metadata.setCredentialEndpoint(buildCredentialEndpoint(issuer, version));
+        metadata.setCredentialEndpoint(IssuerUrlUtil.buildCredentialEndpoint(credentialIssuer, version));
         metadata.setDisplay(mapIssuerDisplay(issuer));
         if (allowCNonce) {
-            metadata.setNonceEndpoint(buildNonceEndpoint(issuer));
+            metadata.setNonceEndpoint(IssuerUrlUtil.buildNonceEndpoint(credentialIssuer));
         }
     }
 
@@ -491,9 +492,6 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
                 .collect(Collectors.toList());
     }
 
-    private String buildNonceEndpoint(Issuer issuer) {
-        return issuer.getCredentialIssuerUrl() + "/nonce";
-    }
 
     private List<String> resolveAuthorizationServers(Issuer issuer) {
         Set<String> allServers = new LinkedHashSet<>();
@@ -524,13 +522,6 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         }
 
         return new ArrayList<>(allServers);
-    }
-
-    private String buildCredentialEndpoint(Issuer issuer, String version) {
-        if ("latest".equals(version)) {
-            return issuer.getCredentialIssuerUrl() + "/issuance/credential";
-        }
-        return issuer.getCredentialIssuerUrl() + "/issuance/" + version + "/credential";
     }
 
     private CredentialConfigurationSupportedDTO mapToSupportedDTO(CredentialConfig credentialConfig) {

@@ -217,7 +217,7 @@ public class CertifyIssuanceServiceImplTest {
         defaultIssuer.setDidUrl("https://test.issuer.com");
         defaultIssuer.setCredentialIssuerUrl("https://test.issuer.com");
         defaultIssuer.setStatus("active");
-        when(issuerResolver.resolve(any())).thenReturn(defaultIssuer);
+        when(issuerResolver.resolve(nullable(String.class), any())).thenReturn(defaultIssuer);
     }
 
     private CredentialRequest createValidCredentialRequest(String format) {

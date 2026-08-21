@@ -16,6 +16,8 @@ public interface CredentialConfigRepository extends JpaRepository<CredentialConf
 
     List<CredentialConfig> findByIssuerIdAndStatus(String issuerId, String status);
 
+    List<CredentialConfig> findByScopeAndStatus(String scope, String status);
+
     Optional<CredentialConfig> findByIssuerIdAndCredentialFormatAndCredentialTypeAndContext(
             String issuerId, String credentialFormat, String credentialType, String context);
 

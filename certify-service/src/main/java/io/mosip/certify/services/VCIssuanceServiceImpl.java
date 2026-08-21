@@ -77,8 +77,6 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
-        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId());
-
         boolean isValidCredentialRequest = CredentialRequestValidator.isValid(credentialRequest);
         if(!isValidCredentialRequest) {
             throw new InvalidRequestException(VCIErrorConstants.INVALID_CREDENTIAL_REQUEST);
@@ -88,6 +86,7 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
 
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim);
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialMetadata> result = VCIssuanceUtil.getScopeCredentialMapping(scope, credentialRequest.getFormat(),
