@@ -152,7 +152,7 @@ public class VCApiIssuanceServiceTest {
     }
 
     @Test
-    public void issue_reordersLdpVcProperties_toVcdmExampleOrder() throws Exception {
+    public void issue_reordersLdpVcProperties_toPreviouslyIssuedOrder() throws Exception {
         VCApiIssueRequest request = buildRequest("farmer-credential", Map.of("fullName", "Jane Doe"));
         VcApiValidityResolver.ValidityWindow validity =
                 new VcApiValidityResolver.ValidityWindow("2026-07-24T06:30:00.000Z", "2031-07-24T06:30:00.000Z");
@@ -163,18 +163,34 @@ public class VCApiIssuanceServiceTest {
         when(credentialConfigurationService.getCredentialConfigurationById("farmer-credential")).thenReturn(config);
         when(vcApiValidityResolver.resolve(null, null)).thenReturn(validity);
 
-        // Deliberately unordered input (credentialSubject / validUntil first)
         String unorderedVc = """
                 {
-                  "credentialSubject": {"fullName": "Jane Doe"},
+                  "credentialSubject": {
+                    "recipientLastName": "Doe",
+                    "email": "example@gmail.com",
+                    "id": "urn:uuid:91b233e9-af63-4fd5-a180-7ac0d76ccaff",
+                    "recipientFirstName": "John"
+                  },
                   "validUntil": "2031-07-24T06:30:00.000Z",
                   "validFrom": "2026-07-24T06:30:00.000Z",
-                  "id": "urn:uuid:test",
+                  "id": "urn:uuid:584098b3-d761-444e-a3db-5037f0508859",
                   "type": ["VerifiableCredential", "FarmerCredential"],
                   "@context": ["https://www.w3.org/ns/credentials/v2"],
                   "issuer": "did:web:example",
-                  "credentialStatus": {"type": "BitstringStatusListEntry"},
-                  "proof": {"type": "Ed25519Signature2020"}
+                  "credentialStatus": {
+                    "statusPurpose": "revocation",
+                    "statusListIndex": "99668",
+                    "id": "https://example.com/status-list#99668",
+                    "type": "BitstringStatusListEntry",
+                    "statusListCredential": "https://example.com/status-list"
+                  },
+                  "proof": {
+                    "type": "Ed25519Signature2020",
+                    "created": "2026-08-21T08:39:21Z",
+                    "proofPurpose": "assertionMethod",
+                    "verificationMethod": "did:web:example#key",
+                    "proofValue": "zABC"
+                  }
                 }
                 """;
         JsonLDObject signedVc = JsonLDObject.fromJson(unorderedVc);
@@ -186,16 +202,31 @@ public class VCApiIssuanceServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> vc = (Map<String, Object>) response.getVerifiableCredential();
         assertEquals(List.of(
-                "@context",
                 "id",
                 "type",
+                "proof",
                 "issuer",
+                "@context",
                 "validFrom",
                 "validUntil",
-                "credentialSubject",
                 "credentialStatus",
-                "proof"
+                "credentialSubject"
         ), List.copyOf(vc.keySet()));
+        assertTrue(vc.get("id").toString().startsWith("urn:uuid:"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> proof = (Map<String, Object>) vc.get("proof");
+        assertEquals(List.of("type", "created", "proofValue", "proofPurpose", "verificationMethod"),
+                List.copyOf(proof.keySet()));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> credentialStatus = (Map<String, Object>) vc.get("credentialStatus");
+        assertEquals(List.of("id", "type", "statusPurpose", "statusListIndex", "statusListCredential"),
+                List.copyOf(credentialStatus.keySet()));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> credentialSubject = (Map<String, Object>) vc.get("credentialSubject");
+        assertEquals("id", List.copyOf(credentialSubject.keySet()).get(0));
     }
 
     @Test
