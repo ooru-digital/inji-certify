@@ -16,7 +16,10 @@ services:
       - "5433:5432"
 
   certify:
-    image: inji-certify-with-plugins-mdl:0.14.0-prod-latest-8
+    # Local rebuild: public with-plugins + workspace JAR (JSON-LD cache, etc.)
+    # Build: docker build -f docker-compose/docker-compose-injistack/Dockerfile.local-dev -t inji-certify-with-plugins-mdl:local-dev .
+    # Prod/plugin image (without local JAR rebuild): inji-certify-with-plugins-mdl:0.14.0-prod-latest-8
+    image: inji-certify-with-plugins-mdl:local-dev
     user: root
     ports:
       - 8090:8090
@@ -40,8 +43,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - network
-    depends_on:
-      - database
+    # Staging DB is remote; local postgres service is not required.
 
   certify-nginx:
     image: nginx:stable

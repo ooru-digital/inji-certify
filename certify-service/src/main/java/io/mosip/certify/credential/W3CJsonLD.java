@@ -14,6 +14,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+import com.apicatalog.jsonld.loader.DocumentLoader;
 import com.danubetech.dataintegrity.DataIntegrityProof;
 import com.danubetech.dataintegrity.signer.LdSigner;
 import com.danubetech.dataintegrity.signer.LdSignerRegistry;
@@ -24,7 +25,6 @@ import io.mosip.certify.core.dto.CertificateResponseDTO;
 import io.mosip.certify.proofgenerators.ProofGeneratorFactory;
 import io.mosip.certify.proofgenerators.dataintegrity.KeymanagerByteSigner;
 import io.mosip.certify.proofgenerators.dataintegrity.KeymanagerByteSignerFactory;
-import io.mosip.certify.services.CertifyIssuanceServiceImpl;
 import io.mosip.certify.utils.CredentialUtils;
 import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.vcformatters.VCFormatter;
@@ -51,6 +51,8 @@ public class W3CJsonLD extends Credential{
     SignatureServicev2 signatureService;
     @Autowired
     DIDDocumentUtil didDocumentUtil;
+    @Autowired
+    DocumentLoader documentLoader;
 
     @Value("#{${mosip.certify.signature-algo.key-alias-mapper}}")
     private Map<String, List<List<String>>> keyAliasMapper;
@@ -89,7 +91,9 @@ public class W3CJsonLD extends Credential{
         VCResult<JsonLDObject> vcResult = new VCResult<>();
         Map<String,String> keyReferenceDetails = Map.of(Constants.APPLICATION_ID, appID, Constants.REFERENCE_ID, refID);
         JsonLDObject jsonLDObject = JsonLDObject.fromJson(vcToSign);
-        jsonLDObject.setDocumentLoader(null);
+        // Use local/static/cached contexts — do not fall through to Titanium HTTP
+        // (live www.w3.org) under parallel bulk issuance.
+        jsonLDObject.setDocumentLoader(documentLoader);
         // NOTE: other aspects can be configured via keyMgrInput map
         String validFrom;
         if (jsonLDObject.getJsonObject().containsKey(VCDM1Constants.ISSUANCE_DATE)) {
