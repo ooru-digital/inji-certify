@@ -14,10 +14,6 @@ on:
         required: false
         type: string
         default: ""
-      # django_env:
-      #   required: false
-      #   type: string
-      #   default: STAGING
       docker_context:
         required: false
         type: string
@@ -70,10 +66,6 @@ jobs:
   container_pipeline:
     name: Container Pipeline
     runs-on: [self-hosted, linux, x64, aws]
-
-    # Switch back to GitHub-hosted build later by commenting the line above and
-    # uncommenting the line below.
-    #runs-on: ubuntu-latest
 
     outputs:
       image_tag: ${{ steps.image_meta.outputs.image_tag }}
@@ -129,9 +121,9 @@ jobs:
         continue-on-error: ${{ !inputs.fail_on_gitleaks }}
         run: |
           set +e
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/devnull || true)
 
-          if [ -z "$PREVIOUS_TAG" ]; then
+          if [ -z "$PREVIOUS_TAG" ]; me
             echo "No previous tag found. Cannot determine release commit range."
             exit 1
           fi
@@ -234,56 +226,52 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Build Maven Projects
-        id: maven_build
+      # 1. First set of Maven builds
+      - name: Build Core Maven Projects
+        id: maven_build_core
         run: |
-          echo "Java version:"
-          java -version
-
-          echo "JAVA_HOME:"
-          echo "$JAVA_HOME"
-
-          echo "Maven version:"
-          mvn -version
-
-          echo "========================================"
           echo "Building certify-core..."
-          echo "========================================"
+          mvn clean install -f certify-core/pom.xml -Dmaven.test.skip=true -Dgpg.skip=true
 
-          cd certify-core
-          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
-
-          echo "========================================"
           echo "Building certify-integration-api..."
-          echo "========================================"
+          mvn clean install -f certify-integration-api/pom.xml -Dmaven.test.skip=true -Dgpg.skip=true
 
-          cd ../certify-integration-api
-          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
-          
-          echo "========================================"
           echo "Building certify-service..."
-          echo "========================================"
+          mvn clean install -f certify-service/pom.xml -Dmaven.test.skip=true -Dgpg.skip=true
 
-          cd ../certify-service
-          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
+      # 2. Login & Push certify-service image right after its Maven build
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-          echo "========================================"
+      - name: Build and Push certify-service Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./certify-service
+          file: ./certify-service/Dockerfile
+          push: true
+          tags: ooruio/inji-certify:1.2.3
+
+      # 3. Second set of Maven builds
+      - name: Build certify-service-with-plugins Maven Projects
+        id: maven_build_plugins
+        run: |
           echo "Building certify-service-with-plugins..."
-          echo "========================================"
+          mvn clean install -f certify-service-with-plugins/pom.xml -Dmaven.test.skip=true -Dgpg.skip=true
 
-          cd ../certify-service-with-plugins
-          mvn clean install -Dmaven.test.skip=true -Dgpg.skip=true
-
+      # 4. Build Docker Image for certify-service-with-plugins (for Trivy scan & main push)
       - name: Build Docker Image
         id: build_image
         run: |
-          cd certify-service-with-plugins
           docker build \
-            -f Dockerfile \
+            -f certify-service-with-plugins/Dockerfile \
             -t "${LOCAL_IMAGE_NAME}:${{ steps.image_meta.outputs.image_tag }}" \
             -t "${{ steps.image_meta.outputs.image_ref }}" \
             -t "${{ steps.image_meta.outputs.image_latest_ref }}" \
-            .
+            ./certify-service-with-plugins
+
       - name: Send Build Failed Alert
         if: failure() && steps.build_image.outcome == 'failure' && env.DISCORD_WEBHOOK != ''
         run: |
@@ -335,8 +323,6 @@ jobs:
 
           if [ -f trivy-results.sarif ]; then
 
-            # Remove findings that are only related to EOL / unsupported /
-            # deprecated / version-support warnings.
             jq '
               .runs[].results |= map(
                 select(
@@ -390,9 +376,6 @@ jobs:
             exit 0
           fi
 
-          # ------------------------------------------------
-          # FAILED - generate report
-          # ------------------------------------------------
           if [ "$STATUS" = "FAILED" ]; then
 
             {
@@ -427,9 +410,6 @@ jobs:
             exit 1
           fi
 
-          # ------------------------------------------------
-          # ERROR
-          # ------------------------------------------------
           if [ "$STATUS" = "ERROR" ]; then
 
             {
@@ -536,9 +516,6 @@ jobs:
           [ -z "$GITLEAKS_STATUS" ] && GITLEAKS_STATUS="UNKNOWN"
           [ -z "$TRIVY_STATUS" ] && TRIVY_STATUS="UNKNOWN"
 
-          # ================================================
-          # CONTAINER PIPELINE FAILURE ONLY
-          # ================================================
           if [ "$GITLEAKS_STATUS" != "PASSED" ] || [ "$TRIVY_STATUS" != "PASSED" ]; then
 
             CONTENT=$(cat <<EOF
@@ -562,14 +539,12 @@ jobs:
               -F "content=${CONTENT}"
             )
 
-            # Gitleaks report only when failed
             if [ "$GITLEAKS_STATUS" = "FAILED" ] && [ -f gitleaks-report.txt ]; then
               CURL_ARGS+=(
                 -F "file1=@gitleaks-report.txt"
               )
             fi
 
-            # Trivy report only when failed
             if [ "$TRIVY_STATUS" = "FAILED" ] && [ -f trivy-report.txt ]; then
               CURL_ARGS+=(
                 -F "file2=@trivy-report.txt"
