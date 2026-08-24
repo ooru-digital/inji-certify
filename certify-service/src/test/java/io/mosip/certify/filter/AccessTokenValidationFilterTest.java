@@ -2,6 +2,7 @@ package io.mosip.certify.filter;
 
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.dto.ParsedAccessToken;
+import io.mosip.certify.dpop.DpopProofValidator;
 import io.mosip.certify.core.util.CommonUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import java.util.*;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,6 +46,9 @@ class AccessTokenValidationFilterTest {
 
     @Mock
     private CommonUtil commonUtil;
+
+    @Mock
+    private DpopProofValidator dpopProofValidator;
 
     private MockHttpServletRequest request;
     private MockHttpServletResponse response;
@@ -173,16 +178,58 @@ class AccessTokenValidationFilterTest {
     }
 
     @Test
-    public void whenDPoPAuthorizationHeader_shouldMarkTokenInactiveAndContinue() throws ServletException, IOException {
+    public void whenDPoPSchemeWithoutProofHeader_shouldReject() throws ServletException, IOException {
         request.addHeader("Authorization", "DPoP " + TOKEN);
         request.setRequestURI("/api/v1/secured");
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(createValidClaims());
+        when(jwtDecoder.decode(anyString())).thenReturn(jwt);
 
         filter.doFilterInternal(request, response, filterChain);
 
         verify(parsedAccessToken).setActive(false);
-        assertEquals(AccessTokenValidationFilter.ERROR_DPOP_NOT_SUPPORTED,
+        assertEquals(AccessTokenValidationFilter.ERROR_MISSING_DPOP_PROOF,
                 request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
+        assertEquals("DPoP", request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE));
+    }
+
+    @Test
+    public void whenDPoPProofValid_shouldActivateToken() throws ServletException, IOException {
+        request.addHeader("Authorization", "DPoP " + TOKEN);
+        request.addHeader("DPoP", "a.proof.jwt");
+        request.setRequestURI("/api/v1/secured");
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(createValidClaims());
+        when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+        when(dpopProofValidator.validate(anyString(), anyString(), any(), any()))
+                .thenReturn(new DpopProofValidator.ValidatedProof("thumb", "jti-1"));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(parsedAccessToken).setActive(true);
         verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    public void whenDPoPBoundTokenPresentedAsBearer_shouldReject() throws ServletException, IOException {
+        // Downgrade guard: dropping the DPoP header must not turn a sender-constrained
+        // token back into a plain bearer token.
+        request.addHeader("Authorization", "Bearer " + TOKEN);
+        request.setRequestURI("/api/v1/secured");
+
+        Map<String, Object> claims = createValidClaims();
+        claims.put("cnf", Map.of("jkt", "some-thumbprint"));
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(claims);
+        when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(parsedAccessToken).setActive(false);
+        assertEquals(AccessTokenValidationFilter.ERROR_TOKEN_REQUIRES_DPOP,
+                request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
     }
 
     @Test

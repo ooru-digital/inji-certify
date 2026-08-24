@@ -10,6 +10,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import io.mosip.certify.core.constants.Constants;
+import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.exception.InvalidDpopHeaderException;
+import io.mosip.certify.dpop.DpopProofValidator;
 import io.mosip.certify.core.dto.ParsedAccessToken;
 import io.mosip.certify.core.util.CommonUtil;
 import jakarta.servlet.FilterChain;
@@ -45,8 +50,18 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
 
     static final String ERROR_INVALID_TOKEN = "The access token is invalid.";
     static final String ERROR_EXPIRED_TOKEN = "The access token has expired.";
-    static final String ERROR_DPOP_NOT_SUPPORTED = "DPoP tokens are not supported. Use a Bearer token.";
-    static final String ERROR_MISSING_BEARER = "Authorization header with a Bearer token is required.";
+    static final String ERROR_MISSING_BEARER = "Authorization header with a Bearer or DPoP token is required.";
+    static final String ERROR_MISSING_DPOP_PROOF = "A DPoP header is required when using the DPoP authorization scheme.";
+    static final String ERROR_TOKEN_REQUIRES_DPOP = "This access token is DPoP-bound and cannot be presented as a Bearer token.";
+
+    static final String SCHEME_BEARER = "Bearer";
+    static final String SCHEME_DPOP = "DPoP";
+
+    private static final String BEARER_PREFIX = SCHEME_BEARER + " ";
+    private static final String DPOP_PREFIX = SCHEME_DPOP + " ";
+
+    private static final String CNF = "cnf";
+    private static final String JKT = "jkt";
 
     @Value("${mosip.certify.authn.issuer-uri}")
     private String issuerUri;
@@ -63,8 +78,10 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
     @Autowired
     private ParsedAccessToken parsedAccessToken;
 
-    private NimbusJwtDecoder nimbusJwtDecoder;
+    @Autowired
+    private DpopProofValidator dpopProofValidator;
 
+    private NimbusJwtDecoder nimbusJwtDecoder;
 
     private boolean isJwt(String token) {
         return token.split("\\.").length == 3;
@@ -101,13 +118,26 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String authorizationHeader = request.getHeader("Authorization");
-        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
-            String token = authorizationHeader.substring(7);
+        String scheme = resolveScheme(authorizationHeader);
+
+        if (scheme == null) {
+            request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, ERROR_MISSING_BEARER);
+        } else {
+            // Recorded even on the failure paths below, so the 401 answers in the scheme
+            // the caller actually used rather than always challenging with Bearer.
+            request.setAttribute(Constants.AUTH_SCHEME_ATTRIBUTE, scheme);
+            // One line per credential request, naming which scheme the caller used, so a
+            // deployment can see whether callers are on Bearer or DPoP without a debug build.
+            log.info("Access token presented with the {} authorization scheme", scheme);
+            String token = authorizationHeader.substring(scheme.length() + 1);
+
             //validate access token no matter if its JWT or Opaque
-            if(isJwt(token)) {
+            if (isJwt(token)) {
                 try {
                     //Verifies signature and claim predicates, If invalid throws exception
                     Jwt jwt = getNimbusJwtDecoder().decode(token);
+                    authorizeScheme(scheme, token, jwt, request);
+
                     parsedAccessToken.setClaims(new HashMap<>());
                     parsedAccessToken.getClaims().putAll(jwt.getClaims());
                     parsedAccessToken.setAccessTokenHash(CommonUtil.generateOIDCAtHash(token));
@@ -115,6 +145,13 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
 
+                } catch (CertifyException e) {
+                    // DPoP failures already carry a precise, caller-safe description.
+                    // The code travels with it so the handler advice can answer
+                    // invalid_dpop_proof rather than a generic invalid_token.
+                    log.error("DPoP validation failed: {}", e.getMessage());
+                    request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, e.getMessage());
+                    request.setAttribute(Constants.AUTH_ERROR_CODE_ATTRIBUTE, e.getErrorCode());
                 } catch (Exception e) {
                     log.error("Access token validation failed", e);
                     request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, resolveJwtErrorDescription(e));
@@ -122,16 +159,57 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
             } else {
                 request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, ERROR_INVALID_TOKEN);
             }
-        } else if (authorizationHeader != null && authorizationHeader.startsWith("DPoP ")) {
-            log.error("DPoP token received but only Bearer tokens are supported");
-            request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, ERROR_DPOP_NOT_SUPPORTED);
-        } else {
-            request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, ERROR_MISSING_BEARER);
         }
 
-        log.error("No valid Bearer / Opaque token provided, continue with the request chain");
+        if (scheme == null) {
+            log.error("No Bearer or DPoP authorization header provided, continue with the request chain");
+        } else {
+            log.error("No valid {} token provided, continue with the request chain", scheme);
+        }
         parsedAccessToken.setActive(false);
         filterChain.doFilter(request, response);
+    }
+
+    private String resolveScheme(String authorizationHeader) {
+        if (authorizationHeader == null) {
+            return null;
+        }
+        if (authorizationHeader.startsWith(BEARER_PREFIX)) {
+            return SCHEME_BEARER;
+        }
+        if (authorizationHeader.startsWith(DPOP_PREFIX)) {
+            return SCHEME_DPOP;
+        }
+        return null;
+    }
+
+    /**
+     * Applies the scheme-specific rules once the token itself is known to be valid.
+     *
+     * <p>The Bearer branch is a downgrade guard: a token carrying {@code cnf.jkt} was
+     * issued sender-constrained, and accepting it as a plain Bearer token would discard
+     * exactly the protection DPoP exists to provide - a stolen token would work again.
+     */
+    private void authorizeScheme(String scheme, String token, Jwt jwt, HttpServletRequest request) {
+        if (SCHEME_DPOP.equals(scheme)) {
+            String dpopHeader = request.getHeader(Constants.DPOP);
+            if (dpopHeader == null || dpopHeader.isBlank()) {
+                throw new InvalidDpopHeaderException(ERROR_MISSING_DPOP_PROOF);
+            }
+            // Everything the proof has to satisfy - structure, signature, request and token
+            // binding, freshness, single use - is decided in there.
+            DpopProofValidator.ValidatedProof proof =
+                    dpopProofValidator.validate(dpopHeader, token, jwt.getClaims(), request);
+            log.debug("DPoP proof accepted for jkt={}", proof.jkt());
+
+        } else if (isDpopBoundAccessToken(jwt.getClaims())) {
+            throw new InvalidDpopHeaderException(ERROR_TOKEN_REQUIRES_DPOP);
+        }
+    }
+
+    private boolean isDpopBoundAccessToken(Map<String, Object> claims) {
+        Object cnf = claims.get(CNF);
+        return cnf instanceof Map && ((Map<?, ?>) cnf).get(JKT) != null;
     }
 
     private String resolveJwtErrorDescription(Exception e) {

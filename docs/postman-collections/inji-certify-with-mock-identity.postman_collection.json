@@ -3,7 +3,8 @@
 		"_postman_id": "3494bbcf-2868-42c5-8f74-236e952f8e1e",
 		"name": "certify- Mock IDA",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "41350892"
+		"_exporter_id": "41350892",
+		"description": "Bearer credential issuance against the mock identity system.\n\nEnvironment ships pointing at a LOCAL deployment. To run against MOSIP's released/collab deployment change these five variables only: authServerUrl, aud, audUrl, mockIdentitySystemUrl, relayingPartyId. See docs/postman-collections/README-mock-identity-dpop.md.\n\nUses the shared environment \"certify-mock env\". Run the VCI folder top to bottom; Authorize / OAuthdetails request V2 must run before Send OTP. Its Get Tokens V2 also publishes unbound_access_token, which the DPoP scenarios in \"certify- Mock IDA - DPoP\" consume."
 	},
 	"item": [
 		{
@@ -46,8 +47,10 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
+									"// eSignet 1.8 (Spring Security 6, BREACH protection) puts the RAW token in the",
+									"// XSRF-TOKEN cookie and the MASKED token in the response body. X-XSRF-TOKEN must",
+									"// carry the body value; sending the cookie value gives 403 Forbidden.",
+									"pm.environment.set(\"csrf_token\", pm.response.json().token);"
 								],
 								"type": "text/javascript"
 							}
@@ -88,7 +91,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"kp = pmlib.rs.KEYUTIL.generateKeypair(\"RSA\", 2048);",
 									"privateKey_jwk = pmlib.rs.KEYUTIL.getJWK(kp.prvKeyObj);",
 									"publicKey_jwk = pmlib.rs.KEYUTIL.getJWK(kp.pubKeyObj);",
@@ -334,8 +337,10 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
+									"// eSignet 1.8 (Spring Security 6, BREACH protection) puts the RAW token in the",
+									"// XSRF-TOKEN cookie and the MASKED token in the response body. X-XSRF-TOKEN must",
+									"// carry the body value; sending the cookie value gives 403 Forbidden.",
+									"pm.environment.set(\"csrf_token\", pm.response.json().token);"
 								],
 								"type": "text/javascript"
 							}
@@ -378,9 +383,6 @@
 								"exec": [
 									"var btoa = require('btoa');",
 									"",
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);",
-									"",
 									"pm.test(\"Validate transactionId\", function () {",
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.response.transactionId).not.equals(null);",
@@ -412,7 +414,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"",
 									"const pkce = pmlib.pkceChallenge();",
 									"pm.collectionVariables.set(\"codeChallenge\",pkce.code_challenge);",
@@ -500,27 +502,6 @@
 				},
 				{
 					"name": "Authenticate User",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
-								],
-								"type": "text/javascript"
-							}
-						},
-						{
-							"listen": "prerequest",
-							"script": {
-								"exec": [
-									""
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
 					"request": {
 						"method": "POST",
 						"header": [
@@ -561,7 +542,18 @@
 							]
 						}
 					},
-					"response": []
+					"response": [],
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
 				},
 				{
 					"name": "Authorization Code",
@@ -570,9 +562,6 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);",
-									"",
 									"pm.test(\"Validate code\", function () {",
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.response.code).not.equals(null);",
@@ -634,21 +623,19 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"",
 									"// Set headers for JWT",
 									"var header = {\t",
 									"\t\"alg\": \"RS256\"",
 									"};",
 									"",
-									"",
 									"//sign token",
 									"//Note: Key pair is generated in \"Create OIDC client\" pre-requests script",
 									"//generated private and public keys are stored in the postman environment ",
 									"const signed_jwt = pmlib.clientAssertPrivateKey(JSON.parse(pm.environment.get(\"privateKey_jwk\")), pm.environment.get('clientId'), pm.environment.get('aud'), exp = 60,  \"RS256\");",
 									"",
-									"pm.collectionVariables.set(\"client_assertion\",signed_jwt);",
-									""
+									"pm.collectionVariables.set(\"client_assertion\",signed_jwt);"
 								],
 								"type": "text/javascript"
 							}
@@ -666,6 +653,9 @@
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.access_token).not.equals(null);",
 									"    pm.environment.set(\"access_token\", jsonData.access_token);",
+									"    // This client is not DPoP-registered, so its token carries no cnf.jkt.",
+									"    // The DPoP scenarios use it as the \"unbound token\" fixture.",
+									"    pm.environment.set(\"unbound_access_token\", jsonData.access_token);",
 									"",
 									"});"
 								],
@@ -766,7 +756,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"keyPair = pmlib.rs.KEYUTIL.generateKeypair(\"RSA\", 2048);",
 									"jwkPrivateKey = pmlib.rs.KEYUTIL.getJWK(keyPair.prvKeyObj);",
 									"jwkPublicKey  = pmlib.rs.KEYUTIL.getJWK(keyPair.pubKeyObj);",
@@ -1047,9 +1037,7 @@
 			"listen": "prerequest",
 			"script": {
 				"type": "text/javascript",
-				"exec": [
-					""
-				]
+				"exec": []
 			}
 		},
 		{

@@ -58,4 +58,12 @@ public class Constants {
     public static final String AS_METADATA_PREFIX = "as_metadata:";
     // Request attribute used by the access token filter to pass the auth-failure reason to the exception handler.
     public static final String AUTH_ERROR_ATTRIBUTE = "certify.authError";
+    // Authorization scheme the caller actually used ("Bearer" or "DPoP"), recorded by
+    // AccessTokenValidationFilter so the error response can answer in the same scheme.
+    public static final String AUTH_SCHEME_ATTRIBUTE = "certify.authScheme";
+    // Request attribute carrying the error code behind an auth failure, so the
+    // handler advice can answer with it instead of a generic invalid_token.
+    public static final String AUTH_ERROR_CODE_ATTRIBUTE = "certify.authErrorCode";
+    // Header carrying the DPoP proof JWT (RFC 9449).
+    public static final String DPOP = "DPoP";
 }

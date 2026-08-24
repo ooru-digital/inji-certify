@@ -15,6 +15,7 @@ import io.mosip.certify.core.util.CommonUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.MessageSource;
 import org.springframework.context.NoSuchMessageException;
 import org.springframework.http.HttpHeaders;
@@ -59,6 +60,14 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
 
     @Autowired
     MessageSource messageSource;
+
+    /**
+     * Advertised in the {@code algs} parameter of a DPoP challenge (RFC 9449 §5.1),
+     * so a client that guessed wrong is told what this issuer will accept. Same list
+     * {@link io.mosip.certify.dpop.DpopProofValidator} enforces.
+     */
+    @Value("${mosip.certify.dpop.allowed-algorithms:ES256,ES384,ES512,RS256,PS256}")
+    private List<String> dpopAllowedAlgorithms;
 
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpHeaders headers,
@@ -194,12 +203,27 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             return new ResponseEntity<>(getVCErrorDto(message, message), HttpStatus.BAD_REQUEST);
         }
         if(ex instanceof NotAuthenticatedException) {
-            String errorCode = ((CertifyException) ex).getErrorCode();
             Object reason = request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE);
+            // The filter cannot propagate its own exception - it records the failure and
+            // lets the chain run on - so both the code and the description are read back
+            // from the request. Without the code, every DPoP failure would surface as the
+            // generic invalid_token carried by NotAuthenticatedException.
+            Object code = request.getAttribute(Constants.AUTH_ERROR_CODE_ATTRIBUTE);
+            String errorCode = (code instanceof String) ? (String) code : ((CertifyException) ex).getErrorCode();
             String description = (reason instanceof String) ? (String) reason : getMessage(errorCode, errorCode);
             HttpHeaders headers = new HttpHeaders();
-            // Server currently supports only Bearer; make this scheme-aware when DPoP is supported.
-            headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
+            // RFC 9449 §7.1: challenge in the scheme the caller used, so a DPoP client is
+            // not told to retry with Bearer - which it must not do for a bound token. The
+            // algs parameter advertises what the proof may be signed with, as eSignet does.
+            Object schemeAttribute = request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE);
+            String scheme = (schemeAttribute instanceof String) ? (String) schemeAttribute : "Bearer";
+            StringBuilder challenge = new StringBuilder(scheme)
+                    .append(" error=\"").append(errorCode).append('"')
+                    .append(", error_description=\"").append(description).append('"');
+            if(INVALID_DPOP_PROOF.equals(errorCode)) {
+                challenge.append(", algs=\"").append(String.join(" ", dpopAllowedAlgorithms)).append('"');
+            }
+            headers.set(HttpHeaders.WWW_AUTHENTICATE, challenge.toString());
             return new ResponseEntity<>(getVCErrorDto(errorCode, description), headers, HttpStatus.UNAUTHORIZED);
         }
         if(ex instanceof InvalidRequestException) {
