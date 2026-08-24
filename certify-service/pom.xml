@@ -149,6 +149,11 @@
             <artifactId>data-integrity-java</artifactId>
             <version>1.17.0</version>
         </dependency>
+        <!-- jsonld-common marks caffeine optional; required for remote context cache -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.crypto.tink</groupId>
             <artifactId>tink</artifactId>
