@@ -217,9 +217,12 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             // algs parameter advertises what the proof may be signed with, as eSignet does.
             Object schemeAttribute = request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE);
             String scheme = (schemeAttribute instanceof String) ? (String) schemeAttribute : "Bearer";
+            // description can carry proof-supplied text - DpopProofValidator names the
+            // rejected alg, for instance - so it is escaped before going into the header.
+            // Unescaped, a proof with alg = x", scope="openid would inject an auth-param.
             StringBuilder challenge = new StringBuilder(scheme)
-                    .append(" error=\"").append(errorCode).append('"')
-                    .append(", error_description=\"").append(description).append('"');
+                    .append(" error=\"").append(quoteAuthParam(errorCode)).append('"')
+                    .append(", error_description=\"").append(quoteAuthParam(description)).append('"');
             if(INVALID_DPOP_PROOF.equals(errorCode)) {
                 challenge.append(", algs=\"").append(String.join(" ", dpopAllowedAlgorithms)).append('"');
             }
@@ -376,5 +379,29 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             default:
                 return HttpStatus.BAD_REQUEST;
         }
+    }
+
+    /**
+     * Escapes a value for an RFC 9110 quoted-string auth-param.
+     *
+     * <p>Backslash and double quote are backslash-escaped so they cannot close the
+     * quoted-string and start another parameter; control characters, which would let a
+     * value break the header itself, are replaced with a space.
+     */
+    private static String quoteAuthParam(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(value.length());
+        for (char c : value.toCharArray()) {
+            if (c < 0x20 || c == 0x7f) {
+                out.append(' ');
+            } else if (c == '"' || c == '\\') {
+                out.append('\\').append(c);
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 }

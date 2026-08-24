@@ -75,6 +75,19 @@ Note `wallet_private_key` is a **different** key again — it signs the DPoP
 proofs and is what `cnf.jkt` fingerprints. `dpop_privateKey_jwk` proves *which
 client* is calling; `wallet_private_key` proves *which sender* holds the token.
 
+## The committed keys are demo-only
+
+`privateKey_jwk`, `dpop_privateKey_jwk`, `wallet_private_key` and
+`other_private_key` are complete RSA private keys, including `d`, `p` and `q`.
+They are committed to a public repository, so they are public from the moment
+they merge and must be treated as compromised.
+
+They exist so the collections run against a local mock-identity stack with no
+setup. **Never register them with an authorization server that issues tokens for
+anything real**, and never reuse them outside this demo. To rotate, generate a
+fresh keypair, re-register the client with the new public half, and replace the
+private half here.
+
 ## Notes
 
 - **CSRF.** eSignet 1.8 (Spring Security 6, BREACH protection) puts the raw

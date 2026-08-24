@@ -64,7 +64,7 @@ class DpopProofValidatorTest {
     // ---------- happy path ----------
 
     @Test
-    void validProof_shouldReturnThumbprintAndJti() throws Exception {
+    void should_returnThumbprintAndJti_when_proofIsValid() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
         DpopProofValidator.ValidatedProof result =
@@ -75,7 +75,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void htuWithQueryAndFragment_shouldStillMatch() throws Exception {
+    void should_acceptHtu_when_itCarriesQueryAndFragment() throws Exception {
         // RFC 9449 §4.3: htu is compared ignoring query and fragment.
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", DOMAIN_URL + REQUEST_URI + "?x=1#frag").build();
@@ -85,7 +85,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void defaultHttpsPort_shouldNormalizeAway() throws Exception {
+    void should_normalizeAwayPort_when_itIsTheSchemeDefault() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", "https://certify.example.com:443" + REQUEST_URI).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -96,44 +96,44 @@ class DpopProofValidatorTest {
     // ---------- structure ----------
 
     @Test
-    void missingHeader_shouldFail() {
+    void should_reject_when_dpopHeaderIsMissing() {
         assertInvalid(() -> validator.validate(null, ACCESS_TOKEN, boundClaims(walletJkt), request), "missing");
     }
 
     @Test
-    void multipleProofs_shouldFail() throws Exception {
+    void should_reject_when_headerCarriesMultipleProofs() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof + "," + proof, ACCESS_TOKEN, boundClaims(walletJkt), request),
                 "Exactly one");
     }
 
     @Test
-    void notAJws_shouldFail() {
+    void should_reject_when_proofIsNotAJws() {
         assertInvalid(() -> validator.validate("not-a-jwt", ACCESS_TOKEN, boundClaims(walletJkt), request),
                 "well-formed");
     }
 
     @Test
-    void wrongTyp_shouldFail() throws Exception {
+    void should_reject_when_typHeaderIsWrong() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "JWT", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "typ");
     }
 
     @Test
-    void disallowedAlgorithm_shouldFail() throws Exception {
+    void should_reject_when_algorithmIsNotAllowed() throws Exception {
         ReflectionTestUtils.setField(validator, "allowedAlgorithms", Arrays.asList("RS256"));
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "algorithm");
     }
 
     @Test
-    void missingJwk_shouldFail() throws Exception {
+    void should_reject_when_headerHasNoJwk() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), null, "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "jwk");
     }
 
     @Test
-    void jwkWithPrivateMaterial_shouldBeRejected() throws Exception {
+    void should_reject_when_jwkCarriesPrivateMaterial() throws Exception {
         // A proof must only ever embed the public half. Nimbus refuses to *build* such a
         // header (JWSHeader.Builder.jwk() rejects a private JWK), so the header is crafted
         // by hand here - which is what a hostile client would have to do anyway.
@@ -149,7 +149,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void signatureFromAnotherKey_shouldFail() throws Exception {
+    void should_reject_when_signatureIsFromAnotherKey() throws Exception {
         ECKey attackerKey = new ECKeyGenerator(Curve.P_256).keyID("attacker").generate();
         // Signed by the attacker, but advertising the wallet's public key.
         String proof = signProof(attackerKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -159,14 +159,14 @@ class DpopProofValidatorTest {
     // ---------- request binding ----------
 
     @Test
-    void htmMismatch_shouldFail() throws Exception {
+    void should_reject_when_htmDoesNotMatchTheMethod() throws Exception {
         JWTClaimsSet claims = defaultClaims().claim("htm", "GET").build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "htm");
     }
 
     @Test
-    void htuMismatch_shouldFail() throws Exception {
+    void should_reject_when_htuDoesNotMatchTheUri() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", "https://evil.example.com" + REQUEST_URI).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -174,7 +174,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void proofForAnotherEndpoint_shouldFail() throws Exception {
+    void should_reject_when_proofTargetsAnotherEndpoint() throws Exception {
         // A proof minted for eSignet's /token must not be replayable at Certify.
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", "https://esignet.example.com/v1/esignet/oauth/v2/token").build();
@@ -185,7 +185,7 @@ class DpopProofValidatorTest {
     // ---------- freshness ----------
 
     @Test
-    void staleProof_shouldFail() throws Exception {
+    void should_reject_when_proofIsOlderThanTheFreshnessWindow() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .issueTime(Date.from(Instant.now().minusSeconds(600))).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -193,7 +193,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void proofFromTheFuture_shouldFail() throws Exception {
+    void should_reject_when_iatIsInTheFuture() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .issueTime(Date.from(Instant.now().plusSeconds(600))).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -201,7 +201,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void withinClockSkew_shouldPass() throws Exception {
+    void should_accept_when_iatIsWithinClockSkew() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .issueTime(Date.from(Instant.now().plusSeconds(5))).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -209,7 +209,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void missingIat_shouldFail() throws Exception {
+    void should_reject_when_iatIsMissing() throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .jwtID("jti-1")
                 .claim("htm", "POST")
@@ -223,7 +223,7 @@ class DpopProofValidatorTest {
     // ---------- token binding ----------
 
     @Test
-    void athForADifferentToken_shouldFail() throws Exception {
+    void should_reject_when_athIsForADifferentToken() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .claim("ath", CommonUtil.generateB64EncodedHash(CommonUtil.ALGO_SHA_256, "some.other.token")).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
@@ -231,7 +231,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void truncatedOidcAtHash_shouldNotBeAccepted() throws Exception {
+    void should_reject_when_athIsTheTruncatedOidcAtHash() throws Exception {
         // Guards the CommonUtil split: at_hash keeps 128 bits, ath keeps the full digest.
         JWTClaimsSet claims = defaultClaims()
                 .claim("ath", CommonUtil.generateOIDCAtHash(ACCESS_TOKEN)).build();
@@ -240,13 +240,13 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void unboundAccessToken_shouldFail() throws Exception {
+    void should_reject_when_accessTokenIsNotDpopBound() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, Map.of("sub", "user"), request), "not DPoP-bound");
     }
 
     @Test
-    void thumbprintMismatch_shouldFail() throws Exception {
+    void should_reject_when_thumbprintDoesNotMatchCnfJkt() throws Exception {
         // The wallet's own key, but a token bound to somebody else's.
         ECKey otherKey = new ECKeyGenerator(Curve.P_256).generate();
         String otherJkt = otherKey.toPublicJWK().computeThumbprint().toString();
@@ -256,7 +256,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void missingJti_shouldFail() throws Exception {
+    void should_reject_when_jtiIsMissing() throws Exception {
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
                 .issueTime(new Date())
                 .claim("htm", "POST")
@@ -270,7 +270,7 @@ class DpopProofValidatorTest {
     // ---------- replay ----------
 
     @Test
-    void replayedProof_shouldBeRejected() throws Exception {
+    void should_reject_when_proofIsReplayed() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
         assertEquals(walletJkt, validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request).jkt());
@@ -279,7 +279,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void rejectedProof_shouldNotBurnItsJti() throws Exception {
+    void should_notBurnJti_when_proofIsRejected() throws Exception {
         // The replay check is the last thing validate() does, so a proof turned away on any
         // earlier rule must leave its jti spendable - otherwise one malformed request would
         // lock the wallet out of retrying with the same jti.
@@ -292,28 +292,54 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void distinctJtis_shouldAllBeAccepted() {
+    void should_reject_when_htuIsMissing() {
+        // getRequiredClaim guards this path; without a case here a regression would let a
+        // proof through request binding with no htu at all.
+        JWTClaimsSet noHtu = new JWTClaimsSet.Builder()
+                .jwtID("jti-1")
+                .issueTime(new Date())
+                .claim("htm", "POST")
+                .claim("ath", CommonUtil.generateB64EncodedHash(CommonUtil.ALGO_SHA_256, ACCESS_TOKEN))
+                .build();
+        assertInvalid(() -> validator.validate(
+                signProofUnchecked(noHtu), ACCESS_TOKEN, boundClaims(walletJkt), request), "htu");
+    }
+
+    @Test
+    void should_acceptAll_when_jtisAreDistinct() {
         for (int i = 0; i < 25; i++) {
-            assertFalse(validator.checkAndMarkJti("jti-" + i));
+            assertFalse(validator.checkAndMarkJti(walletJkt, "jti-" + i));
         }
     }
 
     @Test
-    void missingCache_shouldFailClosedRatherThanSkipTheCheck() {
+    void should_acceptSameJti_when_senderKeyDiffers() {
+        // RFC 9449 only requires jti to be unique per client. Keying the replay cache on
+        // jti alone would let one wallet burn a value another wallet may legitimately
+        // use, rejecting a valid proof as a replay.
+        assertFalse(validator.checkAndMarkJti("thumbprint-a", "shared-jti"));
+        assertFalse(validator.checkAndMarkJti("thumbprint-b", "shared-jti"),
+                "a different sender key must have its own jti namespace");
+        assertTrue(validator.checkAndMarkJti("thumbprint-a", "shared-jti"),
+                "the same key replaying the same jti is still a replay");
+    }
+
+    @Test
+    void should_failClosed_when_replayCacheIsMissing() {
         // A cache manager that knows nothing about dpopJti - the exact situation when the
         // cache name is left out of mosip.certify.cache.names.
         ReflectionTestUtils.setField(validator, "cacheManager",
                 new ConcurrentMapCacheManager("someOtherCache"));
 
         CertifyException e = assertThrows(CertifyException.class,
-                () -> validator.checkAndMarkJti("jti-1"));
+                () -> validator.checkAndMarkJti(walletJkt, "jti-1"));
         assertEquals(ErrorConstants.INVALID_DPOP_PROOF, e.getErrorCode());
         assertTrue(e.getMessage().contains("mosip.certify.cache.names"),
                 "the error should name the property that needs fixing");
     }
 
     @Test
-    void concurrentReplays_onlyOneShouldWin() throws Exception {
+    void should_admitOnlyOne_when_replaysAreConcurrent() throws Exception {
         int threads = 16;
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger accepted = new AtomicInteger();
@@ -323,7 +349,7 @@ class DpopProofValidatorTest {
             Thread t = new Thread(() -> {
                 try {
                     start.await();
-                    if (!validator.checkAndMarkJti("racy-jti")) {
+                    if (!validator.checkAndMarkJti(walletJkt, "racy-jti")) {
                         accepted.incrementAndGet();
                     }
                 } catch (InterruptedException ie) {

@@ -15,6 +15,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -153,7 +154,7 @@ public class DpopProofValidator {
         }
         // Replay check runs last: a proof is only burned once everything else about it has
         // been accepted, so a rejected request cannot consume a valid jti.
-        if (checkAndMarkJti(jti)) {
+        if (checkAndMarkJti(jkt, jti)) {
             log.error("Replay detected for jti: {}", jti);
             throw new InvalidDpopHeaderException("DPoP proof has already been used");
         }
@@ -316,11 +317,17 @@ public class DpopProofValidator {
      * are a single atomic operation, so two concurrent replays of the same proof cannot
      * both observe an empty slot and both succeed.
      *
+     * <p>The key is scoped to the sender key, not the bare {@code jti}. RFC 9449 only
+     * requires {@code jti} to be unique per client, so a global namespace lets one
+     * wallet burn a value another wallet may legitimately present later - which would
+     * reject a valid proof as a replay.
+     *
+     * @param jkt RFC 7638 thumbprint of the proof's key, scoping the replay namespace
      * @param jti the proof's unique identifier
-     * @return {@code true} if this {@code jti} was already used, i.e. a replay
+     * @return {@code true} if this {@code jti} was already used by this key, i.e. a replay
      * @throws InvalidDpopHeaderException if the cache is not configured
      */
-    boolean checkAndMarkJti(String jti) {
+    boolean checkAndMarkJti(String jkt, String jti) {
         Cache cache = cacheManager.getCache(DPOP_JTI_CACHE);
         if (cache == null) {
             // Fail closed. Silently skipping the check would leave every proof replayable
@@ -330,16 +337,27 @@ public class DpopProofValidator {
                     + "' is not configured. Add it to mosip.certify.cache.names and "
                     + "mosip.certify.cache.expire-in-seconds.");
         }
-        return cache.putIfAbsent(jti, System.currentTimeMillis()) != null;
+        return cache.putIfAbsent(jkt + ":" + jti, System.currentTimeMillis()) != null;
     }
+
+    /**
+     * Cache types that share state across replicas, and so give replay protection that
+     * actually holds for a multi-pod deployment.
+     */
+    private static final Set<String> DISTRIBUTED_CACHE_TYPES = Set.of("redis", "hazelcast", "infinispan");
 
     /** Logged once at startup so a single-pod-only cache setup is visible in the logs. */
     @PostConstruct
     public void warnOnNonDistributedCache() {
-        if ("simple".equalsIgnoreCase(cacheType)) {
-            log.warn("DPoP replay protection is using the in-memory '{}' cache. This is per-instance: "
-                    + "a multi-replica deployment can be defeated by replaying a proof against another "
-                    + "replica. Set spring.cache.type=redis for multi-replica deployments.", cacheType);
+        // Allow-list rather than a check for "simple": 'none' disables replay protection
+        // outright and 'caffeine' keeps it per-instance, and neither would be reported
+        // by a check that only names the default.
+        if (cacheType == null || !DISTRIBUTED_CACHE_TYPES.contains(cacheType.toLowerCase(Locale.ROOT))) {
+            log.warn("DPoP replay protection is using the '{}' cache, which is not distributed. "
+                    + "Replay state is per-instance, so a multi-replica deployment can be defeated by "
+                    + "replaying a proof against another replica; with 'none' there is no replay "
+                    + "protection at all. Set spring.cache.type=redis for multi-replica deployments.",
+                    cacheType);
         }
     }
 

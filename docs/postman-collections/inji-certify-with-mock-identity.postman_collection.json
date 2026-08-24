@@ -4,7 +4,7 @@
 		"name": "certify- Mock IDA",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "41350892",
-		"description": "Bearer credential issuance against the mock identity system.\n\nEnvironment ships pointing at a LOCAL deployment. To run against MOSIP's released/collab deployment change these five variables only: authServerUrl, aud, audUrl, mockIdentitySystemUrl, relayingPartyId. See docs/postman-collections/README-mock-identity-dpop.md.\n\nUses the shared environment \"certify-mock env\". Run the VCI folder top to bottom; Authorize / OAuthdetails request V2 must run before Send OTP. Its Get Tokens V2 also publishes unbound_access_token, which the DPoP scenarios in \"certify- Mock IDA - DPoP\" consume."
+		"description": "Bearer credential issuance against the mock identity system.\n\nEnvironment ships pointing at a LOCAL deployment. To run against MOSIP's released/collab deployment change these five variables only: authServerUrl, aud, audUrl, mockIdentitySystemUrl, relayingPartyId. See docs/postman-collections/README-mock-identity-dpop.md.\n\nUses the shared environment \"certify-mock env\". Run the VCI folder top to bottom; Authorize / OAuthdetails request V2 must run before Send OTP. Its Get Tokens V2 also publishes unbound_access_token, which the DPoP scenarios in \"certify- Mock IDA - DPoP\" consume.\n\nDEMO KEYS: the RSA private keys in the shared environment are committed to a public repository and must be treated as compromised. They are for the local mock-identity demo only - never register them with an authorization server issuing tokens for anything real."
 	},
 	"item": [
 		{

@@ -178,7 +178,7 @@ class AccessTokenValidationFilterTest {
     }
 
     @Test
-    public void whenDPoPSchemeWithoutProofHeader_shouldReject() throws ServletException, IOException {
+    public void should_reject_when_dpopSchemeHasNoProofHeader() throws ServletException, IOException {
         request.addHeader("Authorization", "DPoP " + TOKEN);
         request.setRequestURI("/api/v1/secured");
 
@@ -195,7 +195,7 @@ class AccessTokenValidationFilterTest {
     }
 
     @Test
-    public void whenDPoPProofValid_shouldActivateToken() throws ServletException, IOException {
+    public void should_activateToken_when_dpopProofIsValid() throws ServletException, IOException {
         request.addHeader("Authorization", "DPoP " + TOKEN);
         request.addHeader("DPoP", "a.proof.jwt");
         request.setRequestURI("/api/v1/secured");
@@ -213,7 +213,7 @@ class AccessTokenValidationFilterTest {
     }
 
     @Test
-    public void whenDPoPBoundTokenPresentedAsBearer_shouldReject() throws ServletException, IOException {
+    public void should_reject_when_dpopBoundTokenIsPresentedAsBearer() throws ServletException, IOException {
         // Downgrade guard: dropping the DPoP header must not turn a sender-constrained
         // token back into a plain bearer token.
         request.addHeader("Authorization", "Bearer " + TOKEN);
