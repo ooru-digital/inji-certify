@@ -3,7 +3,6 @@ package io.mosip.certify.controller;
 import io.mosip.certify.core.dto.CredentialIssuerMetadataDTO;
 import io.mosip.certify.core.dto.ParsedAccessToken;
 import io.mosip.certify.core.exception.CertifyException;
-import io.mosip.certify.core.exception.InvalidRequestException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.spi.JwksService;
 import io.mosip.certify.core.spi.VCIssuanceService;
@@ -128,10 +127,10 @@ class WellKnownControllerTest {
 
     @Test
     void getDIDDocument_serviceThrowsException_returnsError() throws Exception {
-        when(vcIssuanceService.getDIDDocument(isNull())).thenThrow(new InvalidRequestException("unsupported_in_current_plugin_mode"));
+        when(vcIssuanceService.getDIDDocument(isNull())).thenThrow(new CertifyException("issuer_not_found"));
         mockMvc.perform(get("/.well-known/did.json"))
                 .andExpect(status().is2xxSuccessful())
-                .andExpect(jsonPath("$.errors[0].errorCode").value("unsupported_in_current_plugin_mode"));
+                .andExpect(jsonPath("$.errors[0].errorCode").value("issuer_not_found"));
     }
 
     @Test

@@ -75,6 +75,9 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
     @Autowired
     private IssuerResolver issuerResolver;
 
+    @Autowired
+    private DidDocumentService didDocumentService;
+
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
         boolean isValidCredentialRequest = CredentialRequestValidator.isValid(credentialRequest);
@@ -126,7 +129,7 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument(String issuerId) {
-        throw new InvalidRequestException(ErrorConstants.UNSUPPORTED_IN_CURRENT_PLUGIN_MODE);
+        return didDocumentService.getDIDDocument(issuerId);
     }
 
     private VCResult<?> getVerifiableCredential(CredentialRequest credentialRequest, CredentialMetadata credentialMetadata,
