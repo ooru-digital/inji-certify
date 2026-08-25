@@ -223,8 +223,13 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             StringBuilder challenge = new StringBuilder(scheme)
                     .append(" error=\"").append(quoteAuthParam(errorCode)).append('"')
                     .append(", error_description=\"").append(quoteAuthParam(description)).append('"');
-            if(INVALID_DPOP_PROOF.equals(errorCode)) {
-                challenge.append(", algs=\"").append(String.join(" ", dpopAllowedAlgorithms)).append('"');
+            // algs comes from configuration rather than the request, so it is not
+            // attacker-controlled - but it is still a dynamic value, and escaping it
+            // keeps every quoted auth-param in this header safe by the same rule.
+            if(INVALID_DPOP_PROOF.equals(errorCode) && dpopAllowedAlgorithms != null) {
+                challenge.append(", algs=\"")
+                        .append(quoteAuthParam(String.join(" ", dpopAllowedAlgorithms)))
+                        .append('"');
             }
             headers.set(HttpHeaders.WWW_AUTHENTICATE, challenge.toString());
             return new ResponseEntity<>(getVCErrorDto(errorCode, description), headers, HttpStatus.UNAUTHORIZED);

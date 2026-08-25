@@ -106,7 +106,9 @@ public class ExceptionHandlerAdviceTest {
         Mockito.when(req.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE)).thenReturn("DPoP");
         // @Value is not processed for an advice built with new, so the algs list the
         // DPoP challenge advertises has to be supplied here.
-        ReflectionTestUtils.setField(advice, "dpopAllowedAlgorithms", List.of("ES256", "RS256"));
+        // a misconfigured property is the only way a quote reaches algs, but the header
+        // must stay well-formed either way
+        ReflectionTestUtils.setField(advice, "dpopAllowedAlgorithms", List.of("ES256", "RS\"256"));
 
         ResponseEntity<VCError> response = advice.handleVCIControllerExceptions(
                 new NotAuthenticatedException(ErrorConstants.INVALID_DPOP_PROOF), req);
@@ -120,5 +122,9 @@ public class ExceptionHandlerAdviceTest {
         // and with the escaped quotes removed, no stray auth-param is left behind
         Assert.assertFalse("no unescaped auth-param may be injected",
                 challenge.replace("\\\"", "").contains("scope=\""));
+        // every quote in the header is a backslash-escaped one, algs included
+        Assert.assertEquals("unescaped quotes remain in the challenge",
+                0, challenge.replaceAll("\\\\\\\"", "").chars().filter(c -> c == '"').count()
+                        - 6 /* the six delimiters of error, error_description and algs */);
     }
 }
