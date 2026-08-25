@@ -27,8 +27,10 @@ public class VCApiSecurityConfig {
     @Bean
     @Order(1)
     public SecurityFilterChain vcApiSecurityFilterChain(HttpSecurity http) throws Exception {
-        http.securityMatcher(servletPath + "/vc-api/**")
-                .csrf(csrf -> csrf.disable())
+        String vcApiPattern = servletPath + "/vc-api/**";
+        http.securityMatcher(vcApiPattern)
+                // Stateless X-API-Key auth (no cookies/sessions); ignore CSRF for this API only.
+                .csrf(csrf -> csrf.ignoringRequestMatchers(vcApiPattern))
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                 .addFilterBefore(vcApiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
