@@ -52,10 +52,6 @@ on:
         required: true
       NEXUS_URL:
         required: true
-      DOCKERHUB_USERNAME:    
-        required: false
-      DOCKERHUB_TOKEN:       
-        required: false
 
     outputs:
       image_tag:
