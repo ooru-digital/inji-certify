@@ -33,6 +33,7 @@ import io.mosip.certify.core.dto.CredentialStatusDetail;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.utils.CredentialUtils;
 import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.utils.LedgerUtils;
@@ -121,6 +122,9 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Autowired
     private DIDDocumentUtil didDocumentUtil;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Autowired
     private LedgerUtils ledgerUtils;
@@ -314,7 +318,19 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 credentialLedgerService.storeLedgerEntry(credentialId, issuer.getDidUrl(), credentialType, credentialStatusDetail, indexedAttributes, issuanceDate);
                 log.info("Successfully stored the credential issuance data in ledger with credentialType: {}", credentialType);
             }
-            VCResult<?> result = cred.addProof(unsignedCredential, "", vcFormatter.getProofAlgorithm(templateName), vcFormatter.getAppID(templateName), vcFormatter.getRefID(templateName), vcFormatter.getDidUrl(templateName), vcFormatter.getSignatureCryptoSuite(templateName));
+            String proofAlgorithm = vcFormatter.getProofAlgorithm(templateName);
+            String appId = vcFormatter.getAppID(templateName);
+            String refId = vcFormatter.getRefID(templateName);
+            // mso_mdoc must be signed with issuer Document Signer (EC P-256), not LDP DID keys.
+            if (VCFormats.MSO_MDOC.equals(format) && StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
+                mdocPkiService.ensureDocumentSignerCurrent(issuer);
+                appId = issuer.getMdocDsAppId();
+                refId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
+                proofAlgorithm = "ES256";
+                log.info("Signing OID4VCI mdoc with issuer DS appId={}, refId={}", appId, refId);
+            }
+            VCResult<?> result = cred.addProof(unsignedCredential, "", proofAlgorithm, appId, refId,
+                    vcFormatter.getDidUrl(templateName), vcFormatter.getSignatureCryptoSuite(templateName));
 
             jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
             return result;

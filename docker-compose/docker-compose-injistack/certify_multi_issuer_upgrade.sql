@@ -15,11 +15,20 @@ CREATE TABLE IF NOT EXISTS certify.issuer (
     key_manager_ref_id      VARCHAR(128),
     signature_crypto_suite  VARCHAR(64),
     signature_algo          VARCHAR(32),
+    mdoc_iaca_app_id        VARCHAR(36),
+    mdoc_iaca_ref_id        VARCHAR(128),
+    mdoc_ds_app_id          VARCHAR(36),
+    mdoc_ds_ref_id          VARCHAR(128),
     status                  VARCHAR(16)   NOT NULL DEFAULT 'active',
     cr_dtimes               TIMESTAMP     NOT NULL DEFAULT NOW(),
     upd_dtimes              TIMESTAMP,
     CONSTRAINT pk_issuer_id PRIMARY KEY (issuer_id)
 );
+
+ALTER TABLE certify.issuer ADD COLUMN IF NOT EXISTS mdoc_iaca_app_id VARCHAR(36);
+ALTER TABLE certify.issuer ADD COLUMN IF NOT EXISTS mdoc_iaca_ref_id VARCHAR(128);
+ALTER TABLE certify.issuer ADD COLUMN IF NOT EXISTS mdoc_ds_app_id VARCHAR(36);
+ALTER TABLE certify.issuer ADD COLUMN IF NOT EXISTS mdoc_ds_ref_id VARCHAR(128);
 
 INSERT INTO certify.issuer (
     issuer_id, credential_issuer_url, did_url, identifier, display,

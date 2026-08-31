@@ -5,10 +5,14 @@ import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.dto.*;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.validation.IssuerIdValidator;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocPkiRefs;
+import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.DidWebUtil;
 import io.mosip.certify.utils.IssuerMapper;
+import io.mosip.certify.utils.KeyManagerAppIdUtil;
 import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateRequestDto;
 import io.mosip.kernel.keymanagerservice.entity.KeyPolicy;
 import io.mosip.kernel.keymanagerservice.repository.KeyPolicyRepository;
@@ -27,9 +31,6 @@ import java.util.*;
 @Service
 public class IssuerOnboardingService {
 
-    /** MOSIP key_policy_def.app_id / key_alias.app_id column limit */
-    private static final int MAX_KEY_MANAGER_APP_ID_LENGTH = 36;
-
     @Autowired
     private IssuerRepository issuerRepository;
 
@@ -41,6 +42,9 @@ public class IssuerOnboardingService {
 
     @Autowired
     private IssuerMapper issuerMapper;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Value("${mosip.certify.domain.url}")
     private String domainUrl;
@@ -79,13 +83,16 @@ public class IssuerOnboardingService {
         validateSigningConfig(signingConfig);
 
         String keyManagerAppId = buildKeyManagerAppId(request.getIssuerId(), signingConfig.getSignatureAlgo());
-        validateKeyManagerAppId(keyManagerAppId);
         List<String> keyRefs = resolveKeyRefs(signingConfig);
         String keyManagerRefId = keyRefs.getLast();
 
+        MdocPkiRefs mdocPkiRefs;
         try {
             ensureKeyPolicy(keyManagerAppId);
             generateIssuerKeys(keyManagerAppId, signingConfig.getSignatureAlgo(), keyManagerRefId);
+            mdocPkiRefs = mdocPkiService.provision(request.getIssuerId());
+        } catch (CertifyException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to generate keys for issuer {}", request.getIssuerId(), e);
             throw new CertifyException(ErrorConstants.ISSUER_KEY_GENERATION_FAILED,
@@ -107,6 +114,10 @@ public class IssuerOnboardingService {
         issuer.setKeyManagerRefId(keyManagerRefId);
         issuer.setSignatureCryptoSuite(signingConfig.getSignatureCryptoSuite());
         issuer.setSignatureAlgo(signingConfig.getSignatureAlgo());
+        issuer.setMdocIacaAppId(mdocPkiRefs.iacaAppId());
+        issuer.setMdocIacaRefId(mdocPkiRefs.iacaRefId());
+        issuer.setMdocDsAppId(mdocPkiRefs.dsAppId());
+        issuer.setMdocDsRefId(mdocPkiRefs.dsRefId());
         issuer.setStatus(Constants.ACTIVE);
         issuer.setCreatedTimes(LocalDateTime.now());
 
@@ -117,14 +128,25 @@ public class IssuerOnboardingService {
     }
 
     private void validateOnboardingRequest(IssuerOnboardingRequest request) {
-        if (!request.getIssuerId().matches(IssuerConstants.ISSUER_ID_PATTERN)) {
+        String issuerId = IssuerIdValidator.normalize(request.getIssuerId());
+        if (!IssuerIdValidator.isValid(issuerId)) {
             throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
-                    "issuerId must match pattern: " + IssuerConstants.ISSUER_ID_PATTERN);
+                    "issuerId must match pattern: " + IssuerConstants.ISSUER_ID_PATTERN
+                            + " (received: " + abbreviateForError(request.getIssuerId()) + ")");
         }
-        if (IssuerConstants.DEFAULT_ISSUER_ID.equals(request.getIssuerId())) {
+        request.setIssuerId(issuerId);
+        if (IssuerConstants.DEFAULT_ISSUER_ID.equals(issuerId)) {
             throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
                     "Cannot onboard reserved issuerId: default");
         }
+    }
+
+    private String abbreviateForError(String issuerId) {
+        if (issuerId == null) {
+            return "null";
+        }
+        String sanitized = issuerId.replaceAll("[\\r\\n]", " ");
+        return sanitized.length() <= 128 ? sanitized : sanitized.substring(0, 125) + "...";
     }
 
     private void validateSigningConfig(IssuerSigningConfigDTO signingConfig) {
@@ -152,14 +174,6 @@ public class IssuerOnboardingService {
         return aliases.getFirst();
     }
 
-    private void validateKeyManagerAppId(String keyManagerAppId) {
-        if (keyManagerAppId.length() > MAX_KEY_MANAGER_APP_ID_LENGTH) {
-            throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
-                    "issuerId is too long for key manager app id (max "
-                            + MAX_KEY_MANAGER_APP_ID_LENGTH + " chars): " + keyManagerAppId);
-        }
-    }
-
     private void ensureKeyPolicy(String appId) {
         if (keyPolicyRepository.findByApplicationId(appId).isPresent()) {
             return;
@@ -177,7 +191,6 @@ public class IssuerOnboardingService {
     }
 
     private String buildKeyManagerAppId(String issuerId, String signatureAlgo) {
-        String normalizedId = issuerId.toUpperCase(Locale.ROOT).replace("-", "_");
         String algoSuffix = switch (signatureAlgo) {
             case "EdDSA" -> "ED25519";
             case "RS256" -> "RSA";
@@ -185,7 +198,7 @@ public class IssuerOnboardingService {
             case "ES256K" -> "EC_K1";
             default -> signatureAlgo.toUpperCase(Locale.ROOT);
         };
-        return IssuerConstants.KEY_APP_ID_PREFIX + normalizedId + "_" + algoSuffix;
+        return KeyManagerAppIdUtil.buildAppId(IssuerConstants.KEY_APP_ID_PREFIX, issuerId, algoSuffix);
     }
 
     private void generateIssuerKeys(String appId, String signatureAlgo, String refId) {
@@ -245,6 +258,10 @@ public class IssuerOnboardingService {
         response.setDidUrl(issuer.getDidUrl());
         response.setKeyManagerAppId(issuer.getKeyManagerAppId());
         response.setKeyManagerRefId(issuer.getKeyManagerRefId());
+        response.setMdocIacaAppId(issuer.getMdocIacaAppId());
+        response.setMdocIacaRefId(issuer.getMdocIacaRefId());
+        response.setMdocDsAppId(issuer.getMdocDsAppId());
+        response.setMdocDsRefId(issuer.getMdocDsRefId());
 
         String base = domainUrl + servletPath;
         Map<String, String> wellKnown = new LinkedHashMap<>();

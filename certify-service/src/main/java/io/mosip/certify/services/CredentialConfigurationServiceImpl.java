@@ -253,6 +253,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     }
 
     private void applyIssuerSigningKeys(CredentialConfigurationDTO credentialConfig, Issuer issuer) {
+        // mso_mdoc signs with issuer Document Signer (mdocDs*), not LDP DID keys.
+        if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
+            return;
+        }
         if (!StringUtils.hasText(issuer.getKeyManagerAppId())) {
             return;
         }
@@ -286,6 +290,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         if (!issuer.getIssuerId().equals(credentialConfig.getIssuerId())) {
             throw new CertifyException(ErrorConstants.CROSS_ISSUER_CONFIG_MISMATCH,
                     "Credential configuration issuerId must match the target issuer: " + issuer.getIssuerId());
+        }
+        // mso_mdoc uses issuer mdoc DS/IACA PKI; do not require LDP keyManager* binding.
+        if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
+            return;
         }
         if (StringUtils.hasText(issuer.getKeyManagerAppId())
                 && !issuer.getKeyManagerAppId().equals(credentialConfig.getKeyManagerAppId())) {

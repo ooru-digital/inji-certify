@@ -5,6 +5,7 @@ import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.core.validation.IssuerIdValidator;
 import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.repository.IssuerRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -23,8 +24,9 @@ public class IssuerResolver {
     private IssuerContext issuerContext;
 
     public Issuer resolve(String issuerId) {
-        String resolvedId = StringUtils.defaultIfBlank(issuerId, IssuerConstants.DEFAULT_ISSUER_ID);
-        if (!resolvedId.matches(IssuerConstants.ISSUER_ID_PATTERN)) {
+        String resolvedId = IssuerIdValidator.normalize(
+                StringUtils.defaultIfBlank(issuerId, IssuerConstants.DEFAULT_ISSUER_ID));
+        if (!IssuerIdValidator.isValid(resolvedId)) {
             throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
                     "Invalid issuerId format: " + resolvedId);
         }

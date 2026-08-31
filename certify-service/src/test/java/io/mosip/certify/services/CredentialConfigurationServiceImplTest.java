@@ -480,6 +480,60 @@ public class CredentialConfigurationServiceImplTest {
     }
 
     @Test
+    public void addNewCredentialConfig_MsoMdoc_DoesNotStampIssuerLdpKeys() {
+        Issuer onboardedIssuer = new Issuer();
+        onboardedIssuer.setIssuerId("DEFAU-9X27M");
+        onboardedIssuer.setCredentialIssuerUrl("http://localhost:8090/v1/certify");
+        onboardedIssuer.setIdentifier("http://localhost:8090");
+        onboardedIssuer.setDidUrl("did:web:localhost:issuers:DEFAU-9X27M");
+        onboardedIssuer.setStatus("active");
+        onboardedIssuer.setDisplay(Collections.emptyList());
+        onboardedIssuer.setKeyManagerAppId("CERTIFY_ISSUER_DEFAU_9X27M_ED25519");
+        onboardedIssuer.setKeyManagerRefId("ED25519_SIGN");
+        onboardedIssuer.setSignatureAlgo("EdDSA");
+        onboardedIssuer.setSignatureCryptoSuite("Ed25519Signature2020");
+        onboardedIssuer.setMdocDsAppId("CERTIFY_DS_DEFAU_9X27M");
+        onboardedIssuer.setMdocDsRefId("EC_SECP256R1_SIGN");
+        when(issuerResolver.resolve(any())).thenReturn(onboardedIssuer);
+
+        CredentialConfigurationDTO mdocDTO = new CredentialConfigurationDTO();
+        mdocDTO.setIssuerId("DEFAU-9X27M");
+        mdocDTO.setCredentialFormat("mso_mdoc");
+        mdocDTO.setCredentialConfigKeyId("mdoc-credential");
+        mdocDTO.setDocType("org.iso.18013.5.1.mDL");
+        mdocDTO.setVcTemplate("mdoc_template");
+        mdocDTO.setSignatureAlgo("ES256");
+        mdocDTO.setSignatureCryptoSuite("EcdsaSecp256r1Signature2019");
+
+        CredentialConfig saved = new CredentialConfig();
+        saved.setConfigId(UUID.randomUUID().toString());
+        saved.setCredentialConfigKeyId("mdoc-credential");
+        saved.setStatus("active");
+        saved.setCredentialFormat("mso_mdoc");
+
+        when(credentialConfigMapper.toEntity(any(CredentialConfigurationDTO.class))).thenAnswer(invocation -> {
+            CredentialConfigurationDTO dto = invocation.getArgument(0);
+            CredentialConfig entity = new CredentialConfig();
+            entity.setCredentialConfigKeyId(dto.getCredentialConfigKeyId());
+            entity.setCredentialFormat(dto.getCredentialFormat());
+            entity.setKeyManagerAppId(dto.getKeyManagerAppId());
+            entity.setKeyManagerRefId(dto.getKeyManagerRefId());
+            entity.setSignatureAlgo(dto.getSignatureAlgo());
+            entity.setSignatureCryptoSuite(dto.getSignatureCryptoSuite());
+            entity.setDocType(dto.getDocType());
+            entity.setVcTemplate(dto.getVcTemplate());
+            return entity;
+        });
+        when(credentialConfigRepository.save(any(CredentialConfig.class))).thenReturn(saved);
+
+        credentialConfigurationService.addCredentialConfiguration(mdocDTO);
+
+        Assert.assertNull(mdocDTO.getKeyManagerAppId());
+        Assert.assertNull(mdocDTO.getKeyManagerRefId());
+        Assert.assertEquals("ES256", mdocDTO.getSignatureAlgo());
+    }
+
+    @Test
     public void addNewCredentialConfig_SdJwt_Success() {
         CredentialConfig sdJwtConfig = new CredentialConfig();
         sdJwtConfig.setConfigId(UUID.randomUUID().toString());

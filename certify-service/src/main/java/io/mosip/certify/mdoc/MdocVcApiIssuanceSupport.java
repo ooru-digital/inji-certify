@@ -47,12 +47,17 @@ import static io.mosip.certify.utils.CredentialUtils.toJsonMap;
 
 /**
  * Native (plugin-free) mso_mdoc issuance for the VC API path.
- * Signs with the configured Document Signer key/cert property.
+ * <p>
+ * Production path: sign with the issuer's KeyManager Document Signer ({@code mdoc_ds_*}).
+ * Property-based DS is allowed only when {@code mosip.certify.mdoc.allow-property-ds=true}
+ * (local/docker); production must keep that flag {@code false} and fail closed.
  */
 @Slf4j
 @Component
 @ConditionalOnProperty(value = "mosip.certify.vc-api.enabled", havingValue = "true")
 public class MdocVcApiIssuanceSupport {
+
+    private static final String MDOC_DS_SIGN_ALGORITHM = "ES256";
 
     @Autowired
     private CredentialCacheKeyGenerator credentialCacheKeyGenerator;
@@ -62,6 +67,9 @@ public class MdocVcApiIssuanceSupport {
 
     @Autowired
     private MDocProcessor mDocProcessor;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Autowired
     private MdocIssuerKeyCertLoader mdocIssuerKeyCertLoader;
@@ -89,6 +97,13 @@ public class MdocVcApiIssuanceSupport {
 
     @Value("#{${mosip.certify.issuer.ledger-enabled:true}}")
     private boolean isLedgerEnabled;
+
+    /**
+     * When false (default), mdoc signing requires issuer KeyManager DS refs.
+     * Enable only for local/docker so property {@code mosip.certify.mdoc.issuer-key-cert} may be used.
+     */
+    @Value("${mosip.certify.mdoc.allow-property-ds:false}")
+    private boolean allowPropertyDs;
 
     public String issue(Map<String, Object> credentialSubject, CredentialConfigurationDTO config, Issuer issuer) {
         if (StringUtils.isBlank(config.getDocType())) {
@@ -118,7 +133,7 @@ public class MdocVcApiIssuanceSupport {
                 storeLedger(jsonObject, templateParams, time, issuer);
             }
 
-            return signWithLocalDs(unsignedCredential);
+            return signMdoc(unsignedCredential, issuer);
         } catch (JSONException e) {
             log.error("VC API mdoc credential generation failed: {}", e.getMessage(), e);
             throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
@@ -132,9 +147,7 @@ public class MdocVcApiIssuanceSupport {
         }
     }
 
-    private String signWithLocalDs(String unsignedCredential) throws Exception {
-        MdocDsKeyMaterial keyMaterial = mdocIssuerKeyCertLoader.load();
-
+    private String signMdoc(String unsignedCredential, Issuer issuer) throws Exception {
         @SuppressWarnings("unchecked")
         Map<String, Object> mDocJson = objectMapper.readValue(unsignedCredential, Map.class);
         Map<String, Object> saltedNamespaces = MDocProcessor.addRandomSalts(mDocJson);
@@ -142,7 +155,7 @@ public class MdocVcApiIssuanceSupport {
         Map<String, Object> taggedNamespaces = MDocProcessor.calculateDigests(saltedNamespaces, namespaceDigests);
 
         Map<String, Object> mso = mDocProcessor.createMobileSecurityObject(mDocJson, namespaceDigests);
-        byte[] signedMSO = mDocProcessor.signMSOWithLocalDs(mso, keyMaterial, mdocLocalDsCoseSigner);
+        byte[] signedMSO = signMso(mso, issuer);
         Map<String, Object> issuerSigned = MDocProcessor.createIssuerSignedStructure(taggedNamespaces, signedMSO);
 
         Map<String, Object> mDocSignedCredential = new HashMap<>();
@@ -151,6 +164,32 @@ public class MdocVcApiIssuanceSupport {
 
         byte[] cborIssuerSigned = MDocProcessor.encodeToCBOR(mDocSignedCredential);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(cborIssuerSigned);
+    }
+
+    private byte[] signMso(Map<String, Object> mso, Issuer issuer) throws Exception {
+        if (hasIssuerDocumentSigner(issuer)) {
+            // ROOT-style lazy rotation: rotate DS when near expiry / expired, then sign
+            mdocPkiService.ensureDocumentSignerCurrent(issuer);
+            String dsAppId = issuer.getMdocDsAppId();
+            String dsRefId = StringUtils.defaultIfBlank(issuer.getMdocDsRefId(), Constants.EC_SECP256R1_SIGN);
+            log.info("Signing VC API mdoc with issuer KeyManager DS appId={}, refId={}", dsAppId, dsRefId);
+            return mDocProcessor.signMSO(mso, dsAppId, dsRefId, MDOC_DS_SIGN_ALGORITHM);
+        }
+        if (!allowPropertyDs) {
+            throw new CertifyException(ErrorConstants.MDOC_ISSUER_DS_NOT_CONFIGURED,
+                    "Issuer is missing mdoc Document Signer KeyManager refs (mdocDsAppId). "
+                            + "Provision mdoc PKI at issuer onboarding. Property DS is disabled "
+                            + "(mosip.certify.mdoc.allow-property-ds=false); enable only for non-prod.");
+        }
+        log.warn("Issuer {} has no mdoc DS KeyManager refs; using non-prod property Document Signer "
+                        + "(mosip.certify.mdoc.allow-property-ds=true)",
+                issuer != null ? issuer.getIssuerId() : "null");
+        MdocDsKeyMaterial keyMaterial = mdocIssuerKeyCertLoader.load();
+        return mDocProcessor.signMSOWithLocalDs(mso, keyMaterial, mdocLocalDsCoseSigner);
+    }
+
+    private static boolean hasIssuerDocumentSigner(Issuer issuer) {
+        return issuer != null && StringUtils.isNotBlank(issuer.getMdocDsAppId());
     }
 
     private String resolveTemplateName(String credentialConfigurationId) {

@@ -1,0 +1,382 @@
+name: Django Tests CI
+
+on:
+  workflow_call:
+    secrets:
+      DISCORD_WEBHOOK:
+        required: false
+
+    outputs:
+      test_status:
+        description: "Result of the pytest stage"
+        value: ${{ jobs.test.outputs.test_status }}
+
+jobs:
+  test:
+    runs-on: [self-hosted, linux, x64, aws]
+
+    outputs:
+      test_status: ${{ steps.test_outcome.outputs.test_status }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get Branch Name
+        id: branch_name
+        run: |
+          if [ "${{ github.event.pull_request.head.ref }}" ]; then
+            echo "branch_name=${{ github.event.pull_request.head.ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "branch_name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------
+      # CHECK UNIT TEST CASES
+      # ------------------------------------------------
+      - name: Check Unit Test Cases
+        id: check_tests
+        run: |
+          echo "=============================================="
+          echo "Checking for unit test cases..."
+          echo "=============================================="
+
+          TEST_COUNT=$(find . \
+            -type f \
+            \( \
+              -name "test_*.py" \
+              -o -name "*_test.py" \
+              \) \
+            -not -path "./venv/*" \
+            -not -path "./.git/*" \
+            | wc -l)
+
+          echo "Test files found: $TEST_COUNT"
+
+          if [ "$TEST_COUNT" -gt 0 ]; then
+            echo "✅ Unit test cases are present."
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ℹ️ Unit test cases not present."
+            echo "⏭️ Skipping unit test execution."
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------
+      # SETUP PYTHON ONLY IF TESTS EXIST
+      # ------------------------------------------------
+      - name: Set up Python
+        if: steps.check_tests.outputs.has_tests == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # ------------------------------------------------
+      # INSTALL DEPENDENCIES ONLY IF TESTS EXIST
+      # ------------------------------------------------
+      - name: Install dependencies
+        if: steps.check_tests.outputs.has_tests == 'true'
+        run: |
+          rm -rf venv
+
+          python -m venv venv
+          source venv/bin/activate
+
+          python --version
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      # ------------------------------------------------
+      # PATCH OSCRYPTO ONLY IF TESTS EXIST
+      # ------------------------------------------------
+      - name: Patch oscrypto
+        if: steps.check_tests.outputs.has_tests == 'true'
+        run: |
+          source venv/bin/activate
+
+          pip uninstall -y oscrypto || true
+
+          pip install --no-cache-dir \
+            "oscrypto @ git+https://github.com/wbond/oscrypto.git"
+
+          python -c "import ssl; print('SSL:', ssl.OPENSSL_VERSION)"
+          python -c "import oscrypto; print('oscrypto:', oscrypto.__version__)"
+          python -c "from oscrypto import asymmetric; print('oscrypto import OK')"
+          python -c "from endesive import pdf; print('endesive import OK')"
+
+      # ------------------------------------------------
+      # PREPARE TEST ENVIRONMENT
+      # ------------------------------------------------
+      - name: Prepare test environment
+        if: steps.check_tests.outputs.has_tests == 'true'
+        run: |
+          touch tests/users/__init__.py 2>/dev/null || true
+          touch tests/holders/__init__.py 2>/dev/null || true
+          touch tests/verifier/__init__.py 2>/dev/null || true
+          touch tests/issuers/__init__.py 2>/dev/null || true
+
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          find . -name "*.pyc" -delete
+
+      # ------------------------------------------------
+      # DEBUG ENVIRONMENT
+      # ------------------------------------------------
+      - name: Debug Environment
+        if: steps.check_tests.outputs.has_tests == 'true'
+        run: |
+          source venv/bin/activate
+
+          python --version
+          openssl version
+
+          python -c "import ssl; print(ssl.OPENSSL_VERSION)"
+          python -c "import ctypes.util; print(ctypes.util.find_library('crypto'))"
+
+          pip show oscrypto || true
+          pip show endesive || true
+          pip show cryptography || true
+
+      # ------------------------------------------------
+      # RUN TESTS
+      # ------------------------------------------------
+      - name: Run Tests
+        id: pytest
+        if: steps.check_tests.outputs.has_tests == 'true'
+        continue-on-error: true
+        run: |
+          source venv/bin/activate
+
+          chmod +x ./scripts/run_pytest.sh
+
+          ./scripts/run_pytest.sh 2>&1 | tee pytest.log
+
+      # ------------------------------------------------
+      # PARSE TEST SUMMARY
+      # ------------------------------------------------
+      - name: Parse Test Summary
+        id: summary
+        if: always() && steps.check_tests.outputs.has_tests == 'true'
+        run: |
+          SUMMARY=$(grep -E '=+ .*(passed|failed|skipped|warning).* in [0-9.:]+s' pytest.log | tail -1 || true)
+
+          count() {
+            echo "$SUMMARY" | grep -oE "[0-9]+ $1" | awk '{print $1}' | tail -1
+          }
+
+          PASSED=$(count passed)
+          FAILED=$(count failed)
+          SKIPPED=$(count skipped)
+          WARNINGS=$(count 'warnings?')
+          DURATION=$(echo "$SUMMARY" | grep -oE 'in [0-9.:]+s' | tail -1 | awk '{print $2}')
+
+          PASSED=${PASSED:-0}
+          FAILED=${FAILED:-0}
+          SKIPPED=${SKIPPED:-0}
+          WARNINGS=${WARNINGS:-0}
+          DURATION=${DURATION:-N/A}
+
+          TOTAL=$((PASSED + FAILED))
+
+          if [ "$TOTAL" -gt 0 ]; then
+            PASS_PERCENTAGE=$(awk "BEGIN {printf \"%.2f\", ($PASSED / $TOTAL) * 100}")
+          else
+            PASS_PERCENTAGE=0
+          fi
+
+          echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+          echo "skipped=$SKIPPED" >> "$GITHUB_OUTPUT"
+          echo "warnings=$WARNINGS" >> "$GITHUB_OUTPUT"
+          echo "duration=$DURATION" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "pass_percentage=$PASS_PERCENTAGE" >> "$GITHUB_OUTPUT"
+
+          echo "================================"
+          echo "Passed       : $PASSED"
+          echo "Failed       : $FAILED"
+          echo "Total        : $TOTAL"
+          echo "Pass %       : $PASS_PERCENTAGE%"
+          echo "Required     : 60%"
+          echo "================================"
+
+      # ------------------------------------------------
+      # CAPTURE TEST RESULT
+      # ------------------------------------------------
+      - name: Capture Test Result
+        id: test_outcome
+        if: always()
+        run: |
+          # ---------------------------------------------
+          # NO TEST CASES
+          # ---------------------------------------------
+          if [ "${{ steps.check_tests.outputs.has_tests }}" != "true" ]; then
+
+            TEST_STATUS="skipped"
+
+            echo "=============================================="
+            echo "ℹ️ UNIT TEST CASES NOT PRESENT"
+            echo "=============================================="
+            echo "No unit test files were found in this repository."
+            echo "Unit test execution has been skipped."
+            echo "=============================================="
+
+            echo "test_status=$TEST_STATUS" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ---------------------------------------------
+          # TEST CASES EXIST
+          # ---------------------------------------------
+          PASS_PERCENTAGE="${{ steps.summary.outputs.pass_percentage }}"
+
+          if awk "BEGIN {exit !($PASS_PERCENTAGE >= 60.0)}"; then
+            TEST_STATUS="success"
+
+            echo "================================"
+            echo "✅ UNIT TEST PASSED"
+            echo "Pass percentage: ${PASS_PERCENTAGE}%"
+            echo "Required: 60%"
+            echo "================================"
+          else
+            TEST_STATUS="failure"
+
+            echo "================================"
+            echo "❌ UNIT TEST FAILED"
+            echo "Pass percentage: ${PASS_PERCENTAGE}%"
+            echo "Required: 60%"
+            echo "================================"
+          fi
+
+          echo "test_status=$TEST_STATUS" >> "$GITHUB_OUTPUT"
+
+          if [ "$TEST_STATUS" = "failure" ]; then
+            exit 1
+          fi
+
+      # ------------------------------------------------
+      # DISCORD FAILURE NOTIFICATION
+      # ------------------------------------------------
+      - name: Send Discord Notification
+        if: always() && steps.test_outcome.outputs.test_status == 'failure'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK is not configured. Skipping notification."
+            exit 0
+          fi
+
+          MESSAGE=$(cat <<EOF
+          ❌ **Django Unit Tests Failed**
+
+          Repository : ${{ github.repository }}
+          Branch     : ${{ steps.branch_name.outputs.branch_name }}
+
+          Pass Percentage : ${{ steps.summary.outputs.pass_percentage }}%
+          Required        : 60%
+
+          ✅ Passed   : ${{ steps.summary.outputs.passed }}
+          ❌ Failed   : ${{ steps.summary.outputs.failed }}
+          ⏭️ Skipped  : ${{ steps.summary.outputs.skipped }}
+          ⚠️ Warnings : ${{ steps.summary.outputs.warnings }}
+
+          Status : ❌ FAILED
+
+          ⏱ Duration : ${{ steps.summary.outputs.duration }}
+          👤 Triggered By : ${{ github.actor }}
+          🖥 Runner : self-hosted
+
+          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+          )
+
+          curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg content "$MESSAGE" '{content:$content}')" \
+            "$DISCORD_WEBHOOK"
+
+      # ------------------------------------------------
+      # GITHUB SUMMARY
+      # ------------------------------------------------
+      - name: Add Test Summary
+        if: always()
+        run: |
+          {
+            echo "## Django Unit Test Summary"
+            echo ""
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Status | ${{ steps.test_outcome.outputs.test_status }} |"
+            echo "| Test Cases Present | ${{ steps.check_tests.outputs.has_tests }} |"
+
+            if [ "${{ steps.check_tests.outputs.has_tests }}" = "true" ]; then
+              echo "| Pass Percentage | ${{ steps.summary.outputs.pass_percentage }}% |"
+              echo "| Required Threshold | 60% |"
+              echo "| Passed | ${{ steps.summary.outputs.passed }} |"
+              echo "| Failed | ${{ steps.summary.outputs.failed }} |"
+              echo "| Skipped | ${{ steps.summary.outputs.skipped }} |"
+              echo "| Warnings | ${{ steps.summary.outputs.warnings }} |"
+              echo "| Duration | ${{ steps.summary.outputs.duration }} |"
+            else
+              echo "| Message | Unit test cases not present — tests skipped |"
+            fi
+
+            echo "| Branch | ${{ steps.branch_name.outputs.branch_name }} |"
+            echo "| Runner | self-hosted |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------
+      # GENERATE UNIT TEST REPORT
+      # ------------------------------------------------
+      - name: Generate Unit Test Report
+        if: always()
+        run: |
+          {
+            echo "===================================================="
+            echo "              DJANGO UNIT TEST REPORT"
+            echo "===================================================="
+            echo
+            echo "Repository : ${{ github.repository }}"
+            echo "Branch     : ${{ steps.branch_name.outputs.branch_name }}"
+            echo "Commit     : ${{ github.sha }}"
+            echo "Generated  : $(date -u)"
+            echo
+
+            if [ "${{ steps.check_tests.outputs.has_tests }}" = "true" ]; then
+              echo "Status             : ${{ steps.test_outcome.outputs.test_status }}"
+              echo "Pass Percentage    : ${{ steps.summary.outputs.pass_percentage }}%"
+              echo "Required Threshold : 60%"
+              echo
+              echo "Passed             : ${{ steps.summary.outputs.passed }}"
+              echo "Failed             : ${{ steps.summary.outputs.failed }}"
+              echo "Skipped            : ${{ steps.summary.outputs.skipped }}"
+              echo "Warnings           : ${{ steps.summary.outputs.warnings }}"
+              echo "Total              : ${{ steps.summary.outputs.total }}"
+              echo "Duration           : ${{ steps.summary.outputs.duration }}"
+            else
+              echo "Status             : SKIPPED"
+              echo "Message            : Unit test cases not present."
+            fi
+
+            echo
+            echo "===================================================="
+          } > unit-test-report.txt
+
+          if [ "${{ steps.check_tests.outputs.has_tests }}" = "true" ] && [ -f pytest.log ]; then
+            echo "                 LAST 300 PYTEST LOG LINES" >> unit-test-report.txt
+            echo "====================================================" >> unit-test-report.txt
+            echo >> unit-test-report.txt
+            tail -n 300 pytest.log >> unit-test-report.txt
+          fi
+
+      # ------------------------------------------------
+      # UPLOAD REPORT
+      # ------------------------------------------------
+      - name: Upload Unit Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: unit-test-report.txt

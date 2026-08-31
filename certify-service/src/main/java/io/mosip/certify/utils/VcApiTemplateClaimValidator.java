@@ -6,6 +6,7 @@
 package io.mosip.certify.utils;
 
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.VCDM2Constants;
 import io.mosip.certify.core.exception.CertifyException;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.lang3.StringUtils;
@@ -36,7 +37,7 @@ public final class VcApiTemplateClaimValidator {
 
     /**
      * Extracts claim keys required by the template (excludes system placeholders that
-     * Certify injects itself, e.g. {@code _doctype}, {@code _validFrom}).
+     * Certify injects itself, e.g. {@code _doctype}, {@code _validFrom}, {@code validFrom}).
      */
     public static Set<String> extractRequiredClaimKeys(String base64VcTemplate) {
         if (StringUtils.isBlank(base64VcTemplate)) {
@@ -78,6 +79,10 @@ public final class VcApiTemplateClaimValidator {
     private static boolean isSystemPlaceholder(String key) {
         // Certify / Velocity injects these; clients must not supply them via credentialSubject.
         return key.startsWith("_")
+                || VCDM2Constants.VALID_FROM.equals(key)
+                || VCDM2Constants.VALID_UNTIL.equals(key)
+                || "issuanceDate".equals(key)
+                || "expirationDate".equals(key)
                 || "rootContext".equals(key)
                 || "envConfigs".equals(key)
                 || "templateName".equals(key)
