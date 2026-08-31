@@ -627,6 +627,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -758,6 +761,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -895,6 +901,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1026,6 +1035,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1157,6 +1169,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1297,6 +1312,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1432,6 +1450,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1567,6 +1588,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1702,6 +1726,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1837,6 +1864,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -1977,6 +2007,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2112,6 +2145,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2157,6 +2193,284 @@
 											"",
 											"pm.test('error_description matches', function () {",
 											"    pm.expect(pm.response.json().error_description).to.match(/htu does not match/);",
+											"});",
+											"",
+											"pm.test('challenges in the scheme the caller used', function () {",
+											"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.be.a('string');",
+											"});"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{authorization_header}}"
+									},
+									{
+										"key": "DPoP",
+										"value": "{{dpop_proof}}"
+									}
+								],
+								"url": {
+									"raw": "{{certifyUrl}}/issuance/credential",
+									"host": [
+										"{{certifyUrl}}/issuance/credential"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									},
+									"raw": "{\n    \"credential_configuration_id\": \"{{configId}}\",\n    \"proofs\": {\n        \"jwt\": [\n            \"{{vci_proof}}\"\n        ]\n    }\n}"
+								}
+							}
+						},
+						{
+							"name": "proof missing htm",
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"eval(pm.environment.get('pmlib_code'));",
+											"eval(pm.environment.get('dpop_lib'));",
+											"",
+											"// What this request bends. Everything else is a well-formed DPoP request.",
+											"// RFC 9449 section 4.2 lists htm as required; absent, the request is unbound to a method.",
+											"var scenario = {",
+											"    \"omitHtm\": true",
+											"};",
+											"",
+											"var walletKey = JSON.parse(pm.environment.get('wallet_private_key'));",
+											"var endpoint  = pm.environment.get('credentialEndpoint');",
+											"",
+											"// The bound token from the VCI folder, unless the scenario wants the unbound one",
+											"// from the Bearer baseline folder.",
+											"var token = scenario.unboundToken",
+											"    ? pm.environment.get('unbound_access_token')",
+											"    : pm.environment.get('access_token');",
+											"if (!token) {",
+											"    throw new Error('Run the VCI (DPoP) folder first - and the Bearer baseline folder too.');",
+											"}",
+											"pm.environment.set('authorization_header', (scenario.scheme || 'DPoP') + ' ' + token);",
+											"",
+											"var htu = scenario.htuVar ? pm.environment.get(scenario.htuVar) : endpoint;",
+											"if (scenario.htuSuffix) htu = htu + scenario.htuSuffix;",
+											"",
+											"if (scenario.rawProof !== undefined) {",
+											"    pm.environment.set('dpop_proof', scenario.rawProof);",
+											"} else if (!scenario.noProof) {",
+											"    var opts = {",
+											"        // signWith lets the proof be signed by a key the token is NOT bound to.",
+											"        key:         walletKey,",
+											"        signWith:    scenario.otherKey ? JSON.parse(pm.environment.get('other_private_key')) : walletKey,",
+											"        accessToken: token,",
+											"        jti:         scenario.jti,",
+											"        htm:         scenario.htm,",
+											"        htu:         htu,",
+											"        typ:         scenario.typ,",
+											"        alg:         scenario.alg,",
+											"        omitJwk:     scenario.omitJwk,",
+											"        omitJti:     scenario.omitJti,",
+											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
+											"        corruptSignature: scenario.corruptSignature",
+											"    };",
+											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
+											"    // before the binding is ever compared.",
+											"    if (scenario.otherKey) opts.jwk = dpop.publicPart(JSON.parse(pm.environment.get('other_private_key')));",
+											"    if (scenario.iatOffset) opts.iat = dpop.now() + scenario.iatOffset;",
+											"    if (scenario.leakPrivateKey) opts.jwk = Object.assign(dpop.publicPart(walletKey), { d: walletKey.d });",
+											"    if (scenario.athOfOtherToken) opts.ath = dpop.ath(pm.environment.get('unbound_access_token'));",
+											"    if (scenario.truncatedAth) {",
+											"        // The OIDC at_hash keeps the left-most 128 bits of the digest; DPoP's ath",
+											"        // is the whole thing. 32 hex chars = 16 bytes.",
+											"        opts.ath = pmlib.rs.hextob64u(",
+											"            pmlib.rs.KJUR.crypto.Util.hashString(token, 'sha256').slice(0, 32));",
+											"    }",
+											"",
+											"    var proof = dpop.proof(opts);",
+											"    // A repeated DPoP header reaches the server comma-joined.",
+											"    pm.environment.set('dpop_proof', scenario.twoProofs ? proof + ', ' + dpop.proof(opts) : proof);",
+											"",
+											"    // Kept for the replay request that follows, which must present this exact",
+											"    // proof again - a fresh one would have a fresh jti and simply succeed.",
+											"    if (scenario.stashForReplay) pm.environment.set('replay_proof', proof);",
+											"}",
+											"",
+											"// Fresh c_nonce for the OID4VCI holder proof. Postman waits for the callback.",
+											"pm.sendRequest({ url: pm.environment.get('nonceEndpoint'), method: 'POST' }, function (err, res) {",
+											"    pm.environment.set('vci_proof', dpop.vciProof({",
+											"        key:      walletKey,",
+											"        audience: pm.environment.get('issuerIdentifier'),",
+											"        clientId: pm.environment.get('dpopClientId'),",
+											"        nonce:    err ? '' : res.json().c_nonce",
+											"    }));",
+											"});"
+										]
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('status is 401', function () { pm.response.to.have.status(401); });",
+											"",
+											"pm.test('error_description matches', function () {",
+											"    pm.expect(pm.response.json().error_description).to.match(/missing the htm claim/);",
+											"});",
+											"",
+											"pm.test('challenges in the scheme the caller used', function () {",
+											"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.be.a('string');",
+											"});"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{authorization_header}}"
+									},
+									{
+										"key": "DPoP",
+										"value": "{{dpop_proof}}"
+									}
+								],
+								"url": {
+									"raw": "{{certifyUrl}}/issuance/credential",
+									"host": [
+										"{{certifyUrl}}/issuance/credential"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									},
+									"raw": "{\n    \"credential_configuration_id\": \"{{configId}}\",\n    \"proofs\": {\n        \"jwt\": [\n            \"{{vci_proof}}\"\n        ]\n    }\n}"
+								}
+							}
+						},
+						{
+							"name": "proof missing htu",
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"eval(pm.environment.get('pmlib_code'));",
+											"eval(pm.environment.get('dpop_lib'));",
+											"",
+											"// What this request bends. Everything else is a well-formed DPoP request.",
+											"// Without htu the proof is unbound to an endpoint and replayable at any of them.",
+											"var scenario = {",
+											"    \"omitHtu\": true",
+											"};",
+											"",
+											"var walletKey = JSON.parse(pm.environment.get('wallet_private_key'));",
+											"var endpoint  = pm.environment.get('credentialEndpoint');",
+											"",
+											"// The bound token from the VCI folder, unless the scenario wants the unbound one",
+											"// from the Bearer baseline folder.",
+											"var token = scenario.unboundToken",
+											"    ? pm.environment.get('unbound_access_token')",
+											"    : pm.environment.get('access_token');",
+											"if (!token) {",
+											"    throw new Error('Run the VCI (DPoP) folder first - and the Bearer baseline folder too.');",
+											"}",
+											"pm.environment.set('authorization_header', (scenario.scheme || 'DPoP') + ' ' + token);",
+											"",
+											"var htu = scenario.htuVar ? pm.environment.get(scenario.htuVar) : endpoint;",
+											"if (scenario.htuSuffix) htu = htu + scenario.htuSuffix;",
+											"",
+											"if (scenario.rawProof !== undefined) {",
+											"    pm.environment.set('dpop_proof', scenario.rawProof);",
+											"} else if (!scenario.noProof) {",
+											"    var opts = {",
+											"        // signWith lets the proof be signed by a key the token is NOT bound to.",
+											"        key:         walletKey,",
+											"        signWith:    scenario.otherKey ? JSON.parse(pm.environment.get('other_private_key')) : walletKey,",
+											"        accessToken: token,",
+											"        jti:         scenario.jti,",
+											"        htm:         scenario.htm,",
+											"        htu:         htu,",
+											"        typ:         scenario.typ,",
+											"        alg:         scenario.alg,",
+											"        omitJwk:     scenario.omitJwk,",
+											"        omitJti:     scenario.omitJti,",
+											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
+											"        corruptSignature: scenario.corruptSignature",
+											"    };",
+											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
+											"    // before the binding is ever compared.",
+											"    if (scenario.otherKey) opts.jwk = dpop.publicPart(JSON.parse(pm.environment.get('other_private_key')));",
+											"    if (scenario.iatOffset) opts.iat = dpop.now() + scenario.iatOffset;",
+											"    if (scenario.leakPrivateKey) opts.jwk = Object.assign(dpop.publicPart(walletKey), { d: walletKey.d });",
+											"    if (scenario.athOfOtherToken) opts.ath = dpop.ath(pm.environment.get('unbound_access_token'));",
+											"    if (scenario.truncatedAth) {",
+											"        // The OIDC at_hash keeps the left-most 128 bits of the digest; DPoP's ath",
+											"        // is the whole thing. 32 hex chars = 16 bytes.",
+											"        opts.ath = pmlib.rs.hextob64u(",
+											"            pmlib.rs.KJUR.crypto.Util.hashString(token, 'sha256').slice(0, 32));",
+											"    }",
+											"",
+											"    var proof = dpop.proof(opts);",
+											"    // A repeated DPoP header reaches the server comma-joined.",
+											"    pm.environment.set('dpop_proof', scenario.twoProofs ? proof + ', ' + dpop.proof(opts) : proof);",
+											"",
+											"    // Kept for the replay request that follows, which must present this exact",
+											"    // proof again - a fresh one would have a fresh jti and simply succeed.",
+											"    if (scenario.stashForReplay) pm.environment.set('replay_proof', proof);",
+											"}",
+											"",
+											"// Fresh c_nonce for the OID4VCI holder proof. Postman waits for the callback.",
+											"pm.sendRequest({ url: pm.environment.get('nonceEndpoint'), method: 'POST' }, function (err, res) {",
+											"    pm.environment.set('vci_proof', dpop.vciProof({",
+											"        key:      walletKey,",
+											"        audience: pm.environment.get('issuerIdentifier'),",
+											"        clientId: pm.environment.get('dpopClientId'),",
+											"        nonce:    err ? '' : res.json().c_nonce",
+											"    }));",
+											"});"
+										]
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('status is 401', function () { pm.response.to.have.status(401); });",
+											"",
+											"pm.test('error_description matches', function () {",
+											"    pm.expect(pm.response.json().error_description).to.match(/missing the htu claim/);",
 											"});",
 											"",
 											"pm.test('challenges in the scheme the caller used', function () {",
@@ -2252,6 +2566,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2387,6 +2704,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2522,6 +2842,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2657,6 +2980,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -2819,6 +3145,145 @@
 									"raw": "{\n    \"credential_configuration_id\": \"{{configId}}\",\n    \"proofs\": {\n        \"jwt\": [\n            \"{{vci_proof}}\"\n        ]\n    }\n}"
 								}
 							}
+						},
+						{
+							"name": "proof missing iat",
+							"event": [
+								{
+									"listen": "prerequest",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"eval(pm.environment.get('pmlib_code'));",
+											"eval(pm.environment.get('dpop_lib'));",
+											"",
+											"// What this request bends. Everything else is a well-formed DPoP request.",
+											"// No iat means no freshness window can be applied, so the proof never goes stale.",
+											"var scenario = {",
+											"    \"omitIat\": true",
+											"};",
+											"",
+											"var walletKey = JSON.parse(pm.environment.get('wallet_private_key'));",
+											"var endpoint  = pm.environment.get('credentialEndpoint');",
+											"",
+											"// The bound token from the VCI folder, unless the scenario wants the unbound one",
+											"// from the Bearer baseline folder.",
+											"var token = scenario.unboundToken",
+											"    ? pm.environment.get('unbound_access_token')",
+											"    : pm.environment.get('access_token');",
+											"if (!token) {",
+											"    throw new Error('Run the VCI (DPoP) folder first - and the Bearer baseline folder too.');",
+											"}",
+											"pm.environment.set('authorization_header', (scenario.scheme || 'DPoP') + ' ' + token);",
+											"",
+											"var htu = scenario.htuVar ? pm.environment.get(scenario.htuVar) : endpoint;",
+											"if (scenario.htuSuffix) htu = htu + scenario.htuSuffix;",
+											"",
+											"if (scenario.rawProof !== undefined) {",
+											"    pm.environment.set('dpop_proof', scenario.rawProof);",
+											"} else if (!scenario.noProof) {",
+											"    var opts = {",
+											"        // signWith lets the proof be signed by a key the token is NOT bound to.",
+											"        key:         walletKey,",
+											"        signWith:    scenario.otherKey ? JSON.parse(pm.environment.get('other_private_key')) : walletKey,",
+											"        accessToken: token,",
+											"        jti:         scenario.jti,",
+											"        htm:         scenario.htm,",
+											"        htu:         htu,",
+											"        typ:         scenario.typ,",
+											"        alg:         scenario.alg,",
+											"        omitJwk:     scenario.omitJwk,",
+											"        omitJti:     scenario.omitJti,",
+											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
+											"        corruptSignature: scenario.corruptSignature",
+											"    };",
+											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
+											"    // before the binding is ever compared.",
+											"    if (scenario.otherKey) opts.jwk = dpop.publicPart(JSON.parse(pm.environment.get('other_private_key')));",
+											"    if (scenario.iatOffset) opts.iat = dpop.now() + scenario.iatOffset;",
+											"    if (scenario.leakPrivateKey) opts.jwk = Object.assign(dpop.publicPart(walletKey), { d: walletKey.d });",
+											"    if (scenario.athOfOtherToken) opts.ath = dpop.ath(pm.environment.get('unbound_access_token'));",
+											"    if (scenario.truncatedAth) {",
+											"        // The OIDC at_hash keeps the left-most 128 bits of the digest; DPoP's ath",
+											"        // is the whole thing. 32 hex chars = 16 bytes.",
+											"        opts.ath = pmlib.rs.hextob64u(",
+											"            pmlib.rs.KJUR.crypto.Util.hashString(token, 'sha256').slice(0, 32));",
+											"    }",
+											"",
+											"    var proof = dpop.proof(opts);",
+											"    // A repeated DPoP header reaches the server comma-joined.",
+											"    pm.environment.set('dpop_proof', scenario.twoProofs ? proof + ', ' + dpop.proof(opts) : proof);",
+											"",
+											"    // Kept for the replay request that follows, which must present this exact",
+											"    // proof again - a fresh one would have a fresh jti and simply succeed.",
+											"    if (scenario.stashForReplay) pm.environment.set('replay_proof', proof);",
+											"}",
+											"",
+											"// Fresh c_nonce for the OID4VCI holder proof. Postman waits for the callback.",
+											"pm.sendRequest({ url: pm.environment.get('nonceEndpoint'), method: 'POST' }, function (err, res) {",
+											"    pm.environment.set('vci_proof', dpop.vciProof({",
+											"        key:      walletKey,",
+											"        audience: pm.environment.get('issuerIdentifier'),",
+											"        clientId: pm.environment.get('dpopClientId'),",
+											"        nonce:    err ? '' : res.json().c_nonce",
+											"    }));",
+											"});"
+										]
+									}
+								},
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('status is 401', function () { pm.response.to.have.status(401); });",
+											"",
+											"pm.test('error_description matches', function () {",
+											"    pm.expect(pm.response.json().error_description).to.match(/missing the iat claim/);",
+											"});",
+											"",
+											"pm.test('challenges in the scheme the caller used', function () {",
+											"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.be.a('string');",
+											"});"
+										]
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "{{authorization_header}}"
+									},
+									{
+										"key": "DPoP",
+										"value": "{{dpop_proof}}"
+									}
+								],
+								"url": {
+									"raw": "{{certifyUrl}}/issuance/credential",
+									"host": [
+										"{{certifyUrl}}/issuance/credential"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									},
+									"raw": "{\n    \"credential_configuration_id\": \"{{configId}}\",\n    \"proofs\": {\n        \"jwt\": [\n            \"{{vci_proof}}\"\n        ]\n    }\n}"
+								}
+							}
 						}
 					]
 				},
@@ -2873,6 +3338,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -3008,6 +3476,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -3143,6 +3614,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -3278,6 +3752,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -3413,6 +3890,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",
@@ -3548,6 +4028,9 @@
 											"        omitJwk:     scenario.omitJwk,",
 											"        omitJti:     scenario.omitJti,",
 											"        omitAth:     scenario.omitAth,",
+											"        omitHtm:     scenario.omitHtm,",
+											"        omitHtu:     scenario.omitHtu,",
+											"        omitIat:     scenario.omitIat,",
 											"        corruptSignature: scenario.corruptSignature",
 											"    };",
 											"    // The embedded jwk must be the signing key's, or the proof fails on signature",

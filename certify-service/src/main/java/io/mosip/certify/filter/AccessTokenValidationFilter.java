@@ -198,9 +198,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
             }
             // Everything the proof has to satisfy - structure, signature, request and token
             // binding, freshness, single use - is decided in there.
-            DpopProofValidator.ValidatedProof proof =
-                    dpopProofValidator.validate(dpopToken, token, jwt.getClaims(), request);
-            log.debug("DPoP proof accepted for jkt={}", proof.jkt());
+            dpopProofValidator.validate(dpopToken, token, jwt.getClaims(), request);
 
         } else if (isDpopBoundAccessToken(jwt.getClaims())) {
             throw new InvalidDpopHeaderException(ERROR_TOKEN_REQUIRES_DPOP);

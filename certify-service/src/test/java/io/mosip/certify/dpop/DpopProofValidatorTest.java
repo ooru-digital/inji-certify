@@ -67,14 +67,12 @@ class DpopProofValidatorTest {
     // ---------- happy path ----------
 
     @Test
-    void should_returnThumbprintAndJti_when_proofIsValid() throws Exception {
+    void should_acceptAValidProof() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
-        DpopProofValidator.ValidatedProof result =
-                validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request);
-
-        assertEquals(walletJkt, result.jkt());
-        assertEquals("jti-1", result.jti());
+        // Returning normally is the whole assertion: the binding is checked against
+        // walletJkt inside, so completing proves the thumbprint was computed and matched.
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     @Test
@@ -84,7 +82,7 @@ class DpopProofValidatorTest {
                 .claim("htu", DOMAIN_URL + REQUEST_URI + "?x=1#frag").build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
-        assertEquals(walletJkt, validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request).jkt());
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     @Test
@@ -93,7 +91,7 @@ class DpopProofValidatorTest {
                 .claim("htu", "https://certify.example.com:443" + REQUEST_URI).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
-        assertEquals(walletJkt, validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request).jkt());
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     // ---------- structure ----------
@@ -249,7 +247,7 @@ class DpopProofValidatorTest {
         JWTClaimsSet claims = defaultClaims()
                 .issueTime(Date.from(Instant.now().plusSeconds(5))).build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
-        assertEquals(walletJkt, validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request).jkt());
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     @Test
@@ -317,7 +315,7 @@ class DpopProofValidatorTest {
     void should_reject_when_proofIsReplayed() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
-        assertEquals(walletJkt, validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request).jkt());
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request),
                 "already been used");
     }
@@ -332,7 +330,7 @@ class DpopProofValidatorTest {
                 signProofUnchecked(bad), ACCESS_TOKEN, boundClaims(walletJkt), request), "htm");
 
         String good = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
-        assertEquals("jti-1", validator.validate(good, ACCESS_TOKEN, boundClaims(walletJkt), request).jti());
+        assertDoesNotThrow(() -> validator.validate(good, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     @Test
@@ -414,6 +412,40 @@ class DpopProofValidatorTest {
 
     // ---------- helpers ----------
 
+    // ---------- reverse-proxy topology (docker-compose-injistack) ----------
+
+    @Test
+    void should_matchHtuAgainstDomainUrl_notTheUrlTheClientCalled() throws Exception {
+        // docker-compose-injistack sets mosip_certify_domain_url=http://certify-nginx:80,
+        // and nginx proxies to certify:8090/v1/certify/. htu is compared against that
+        // configured address, never against request.getRequestURL(), which behind a proxy
+        // is the container's internal view. A wallet signing the credential_endpoint it
+        // read from issuer metadata therefore matches - metadata is built from the same
+        // property. Note :80 is dropped as the http default before comparison.
+        ReflectionTestUtils.setField(validator, "domainUrl", "http://certify-nginx:80");
+        JWTClaimsSet claims = defaultClaims()
+                .claim("htu", "http://certify-nginx:80" + REQUEST_URI).build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
+    }
+
+    @Test
+    void should_rejectHtuSignedOverTheHostFacingUrl_whenDomainUrlIsTheInNetworkAddress() throws Exception {
+        // The same deployment seen from outside the compose network: a client reaches
+        // certify on localhost:8091 and signs htu over that. It cannot match, because
+        // certify only ever compares against domain.url. This is why the Postman suite,
+        // which derives credentialEndpoint from certifyUrl, fails every DPoP scenario
+        // against that stack until domain.url names the host-facing URL.
+        ReflectionTestUtils.setField(validator, "domainUrl", "http://certify-nginx:80");
+        JWTClaimsSet claims = defaultClaims()
+                .claim("htu", "http://localhost:8091" + REQUEST_URI).build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request),
+                "htu does not match");
+    }
+
     // ---------- key types ----------
 
     @Test
@@ -429,9 +461,9 @@ class DpopProofValidatorTest {
         SignedJWT jwt = new SignedJWT(header, defaultClaims().build());
         jwt.sign(new Ed25519Signer(edKey));
 
-        DpopProofValidator.ValidatedProof proof =
-                validator.validate(jwt.serialize(), ACCESS_TOKEN, boundClaims(edJkt), request);
-        assertEquals(edJkt, proof.jkt());
+        // boundClaims(edJkt) is the assertion: an Ed25519 thumbprint computed any other
+        // way would not match the binding, and validate would throw.
+        assertDoesNotThrow(() -> validator.validate(jwt.serialize(), ACCESS_TOKEN, boundClaims(edJkt), request));
     }
 
     @Test

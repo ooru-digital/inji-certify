@@ -139,23 +139,14 @@ public class DpopProofValidator {
     private String cacheType;
 
     /**
-     * Outcome of a successful validation.
-     *
-     * @param jkt RFC 7638 thumbprint of the proof's embedded key, already confirmed
-     *            to match the access token's {@code cnf.jkt}
-     * @param jti proof identifier, already marked as used
-     */
-    public record ValidatedProof(String jkt, String jti) {
-    }
-
-    /**
      * @param dpopToken         the proof JWT, verbatim from the {@code DPoP} request header
      * @param accessToken       the token from the Authorization header, verbatim
      * @param accessTokenClaims decoded claims of that token, for the {@code cnf.jkt} binding
      * @param request           the inbound request, for {@code htm} / {@code htu}
-     * @throws InvalidDpopHeaderException on any failure
+     * @throws InvalidDpopHeaderException on any failure; returns normally when the proof
+     *         satisfies every rule in RFC 9449 section 4.3
      */
-    public ValidatedProof validate(String dpopToken, String accessToken,
+    public void validate(String dpopToken, String accessToken,
                                    Map<String, Object> accessTokenClaims, HttpServletRequest request) {
         SignedJWT jwt = parseDpopToken(dpopToken);
         JWK jwk = validateDpopHeader(jwt);
@@ -165,8 +156,7 @@ public class DpopProofValidator {
         verifyFreshness(claims);
         validateAthClaim(claims, accessToken);
 
-        String jkt = computeThumbprint(jwt.getHeader().getJWK());
-        validateCnfClaim(jkt, accessTokenClaims);
+        String jkt = validateCnfClaim(jwk, accessTokenClaims);
 
         String jti = claims.getJWTID();
         if (jti == null || jti.isBlank()) {
@@ -178,7 +168,7 @@ public class DpopProofValidator {
             log.error("Replay detected for jti: {}", jti);
             throw new InvalidDpopHeaderException("DPoP proof has already been used");
         }
-        return new ValidatedProof(jkt, jti);
+        log.debug("DPoP proof accepted for jkt={}", jkt);
     }
 
     /**
@@ -340,8 +330,15 @@ public class DpopProofValidator {
     /**
      * The sender-constraining check: the key that signed this proof must be the key the
      * authorization server bound the token to.
+     *
+     * <p>The thumbprint is computed here rather than by the caller, so the one value the
+     * comparison depends on is derived where it is used. It is left until after the
+     * {@code cnf} checks: a token with no binding at all is refused without hashing.
+     *
+     * @return the RFC 7638 thumbprint of the proof key, reused by the caller for the
+     *         replay check and returned to the filter
      */
-    private void validateCnfClaim(String jkt, Map<String, Object> accessTokenClaims) {
+    private String validateCnfClaim(JWK proofJwk, Map<String, Object> accessTokenClaims) {
         Object cnf = accessTokenClaims == null ? null : accessTokenClaims.get(CNF);
         if (!(cnf instanceof Map)) {
             throw new InvalidDpopHeaderException("Access token is not DPoP-bound: cnf claim is missing");
@@ -350,11 +347,13 @@ public class DpopProofValidator {
         if (!(boundJkt instanceof String) || ((String) boundJkt).isBlank()) {
             throw new InvalidDpopHeaderException("Access token is not DPoP-bound: cnf.jkt is missing");
         }
+        String jkt = computeThumbprint(proofJwk);
         if (!MessageDigest.isEqual(((String) boundJkt).getBytes(StandardCharsets.UTF_8),
                 jkt.getBytes(StandardCharsets.UTF_8))) {
             log.error("cnf claim validation failed");
             throw new InvalidDpopHeaderException("DPoP proof key does not match the access token binding");
         }
+        return jkt;
     }
 
     /**

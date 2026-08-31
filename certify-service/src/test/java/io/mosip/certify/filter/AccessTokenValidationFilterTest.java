@@ -203,8 +203,6 @@ class AccessTokenValidationFilterTest {
         Jwt jwt = mock(Jwt.class);
         when(jwt.getClaims()).thenReturn(createValidClaims());
         when(jwtDecoder.decode(anyString())).thenReturn(jwt);
-        when(dpopProofValidator.validate(anyString(), anyString(), any(), any()))
-                .thenReturn(new DpopProofValidator.ValidatedProof("thumb", "jti-1"));
 
         filter.doFilterInternal(request, response, filterChain);
 
