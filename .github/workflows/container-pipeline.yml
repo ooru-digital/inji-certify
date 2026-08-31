@@ -127,9 +127,9 @@ jobs:
         continue-on-error: ${{ !inputs.fail_on_gitleaks }}
         run: |
           set +e
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/devnull || true)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)
 
-          if [ -z "$PREVIOUS_TAG" ]; me
+          if [ -z "$PREVIOUS_TAG" ]; then
             echo "No previous tag found. Cannot determine release commit range."
             exit 1
           fi
