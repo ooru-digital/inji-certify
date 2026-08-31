@@ -54,11 +54,8 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
     static final String ERROR_MISSING_DPOP_PROOF = "A DPoP header is required when using the DPoP authorization scheme.";
     static final String ERROR_TOKEN_REQUIRES_DPOP = "This access token is DPoP-bound and cannot be presented as a Bearer token.";
 
-    static final String SCHEME_BEARER = "Bearer";
-    static final String SCHEME_DPOP = "DPoP";
-
-    private static final String BEARER_PREFIX = SCHEME_BEARER + " ";
-    private static final String DPOP_PREFIX = SCHEME_DPOP + " ";
+    private static final String BEARER_PREFIX = Constants.SCHEME_BEARER + " ";
+    private static final String DPOP_PREFIX = Constants.SCHEME_DPOP + " ";
 
     private static final String CNF = "cnf";
     private static final String JKT = "jkt";
@@ -175,10 +172,10 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
             return null;
         }
         if (authorizationHeader.startsWith(BEARER_PREFIX)) {
-            return SCHEME_BEARER;
+            return Constants.SCHEME_BEARER;
         }
         if (authorizationHeader.startsWith(DPOP_PREFIX)) {
-            return SCHEME_DPOP;
+            return Constants.SCHEME_DPOP;
         }
         return null;
     }
@@ -191,7 +188,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
      * exactly the protection DPoP exists to provide - a stolen token would work again.
      */
     private void authorizeScheme(String scheme, String token, Jwt jwt, HttpServletRequest request) {
-        if (SCHEME_DPOP.equals(scheme)) {
+        if (Constants.SCHEME_DPOP.equals(scheme)) {
             String dpopHeader = request.getHeader(Constants.DPOP);
             if (dpopHeader == null || dpopHeader.isBlank()) {
                 throw new InvalidDpopHeaderException(ERROR_MISSING_DPOP_PROOF);

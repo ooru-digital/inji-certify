@@ -19,9 +19,12 @@ import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.ECDSASigner;
+import com.nimbusds.jose.crypto.Ed25519Signer;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.OctetKeyPair;
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
+import com.nimbusds.jose.jwk.gen.OctetKeyPairGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
@@ -46,7 +49,7 @@ class DpopProofValidatorTest {
     void setUp() throws Exception {
         validator = new DpopProofValidator();
         ReflectionTestUtils.setField(validator, "domainUrl", DOMAIN_URL);
-        ReflectionTestUtils.setField(validator, "allowedAlgorithms", Arrays.asList("ES256", "RS256", "PS256"));
+        ReflectionTestUtils.setField(validator, "allowedAlgorithms", Arrays.asList("ES256", "RS256", "PS256", "EdDSA"));
         ReflectionTestUtils.setField(validator, "proofMaxAgeSeconds", 60L);
         ReflectionTestUtils.setField(validator, "maxClockSkewSeconds", 10L);
         ReflectionTestUtils.setField(validator, "cacheManager",
@@ -180,6 +183,47 @@ class DpopProofValidatorTest {
                 .claim("htu", "https://esignet.example.com/v1/esignet/oauth/v2/token").build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
         assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "htu");
+    }
+
+    @Test
+    void should_rejectTheProof_whenHtuIsNotAbsolute() throws Exception {
+        JWTClaimsSet claims = defaultClaims().claim("htu", REQUEST_URI).build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+        assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "absolute");
+    }
+
+    @Test
+    void should_rejectTheProof_whenHtuDoesNotParse() throws Exception {
+        JWTClaimsSet claims = defaultClaims().claim("htu", "https://certify.example.com/a b").build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+        assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request), "not a valid URI");
+    }
+
+    @Test
+    void should_blameTheServer_whenDomainUrlIsNotAbsolute() throws Exception {
+        // "certify-nginx:80" parses as scheme "certify-nginx" with a null host - the exact
+        // value a compose-network deployment carries. The proof below is impeccable, so
+        // answering invalid_dpop_proof would send a wallet developer hunting a fault that
+        // lives entirely in this deployment's configuration, and that no client can fix.
+        ReflectionTestUtils.setField(validator, "domainUrl", "certify-nginx:80");
+        JWTClaimsSet claims = defaultClaims().build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
+        assertTrue(e.getMessage().contains("misconfigured"));
+        assertFalse(e.getMessage().contains("certify-nginx"),
+                "the offending value belongs in the log, not in a response to the caller");
+    }
+
+    @Test
+    void should_blameTheServer_whenDomainUrlDoesNotParse() throws Exception {
+        ReflectionTestUtils.setField(validator, "domainUrl", "https://certify.example.com/a b");
+        JWTClaimsSet claims = defaultClaims().build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        assertThrows(IllegalStateException.class,
+                () -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
     }
 
     // ---------- freshness ----------
@@ -369,6 +413,43 @@ class DpopProofValidatorTest {
     }
 
     // ---------- helpers ----------
+
+    // ---------- key types ----------
+
+    @Test
+    void should_acceptAnEd25519Proof() throws Exception {
+        // RFC 9449 section 4.2 asks only for an asymmetric signature algorithm, and EdDSA
+        // is one. Before OKP was handled the proof failed as "must be an asymmetric key",
+        // which is the opposite of what an Ed25519 key is.
+        OctetKeyPair edKey = new OctetKeyPairGenerator(Curve.Ed25519).keyID("wallet-ed").generate();
+        String edJkt = edKey.toPublicJWK().computeThumbprint().toString();
+
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.EdDSA)
+                .type(new JOSEObjectType("dpop+jwt")).jwk(edKey.toPublicJWK()).build();
+        SignedJWT jwt = new SignedJWT(header, defaultClaims().build());
+        jwt.sign(new Ed25519Signer(edKey));
+
+        DpopProofValidator.ValidatedProof proof =
+                validator.validate(jwt.serialize(), ACCESS_TOKEN, boundClaims(edJkt), request);
+        assertEquals(edJkt, proof.jkt());
+    }
+
+    @Test
+    void should_rejectAnOkpKeyOnACurveThatCannotSign() throws Exception {
+        // X25519 is for key agreement. It is asymmetric, so the generic message would be
+        // wrong; the curve is named instead.
+        OctetKeyPair xKey = new OctetKeyPairGenerator(Curve.X25519).keyID("x").generate();
+        OctetKeyPair edKey = new OctetKeyPairGenerator(Curve.Ed25519).generate();
+
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.EdDSA)
+                .type(new JOSEObjectType("dpop+jwt")).jwk(xKey.toPublicJWK()).build();
+        SignedJWT jwt = new SignedJWT(header, defaultClaims().build());
+        jwt.sign(new Ed25519Signer(edKey));
+
+        String xJkt = xKey.toPublicJWK().computeThumbprint().toString();
+        assertInvalid(() -> validator.validate(jwt.serialize(), ACCESS_TOKEN,
+                boundClaims(xJkt), request), "X25519");
+    }
 
     private JWTClaimsSet.Builder defaultClaims() {
         return new JWTClaimsSet.Builder()

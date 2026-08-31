@@ -8,53 +8,67 @@ Two collections share one environment:
 | `certify- Mock IDA - DPoP` | `inji-certify-with-mock-identity-dpop.postman_collection.json` | DPoP-constrained issuance (RFC 9449) |
 | `certify-mock env` | `inji-certify-with-mock-identity.postman_environment.json` | shared by both |
 
-Both collections must use the **same** environment. The Bearer collection's
-`Get Tokens V2` publishes `unbound_access_token` into it, and the DPoP
-scenarios use that as the "token with no `cnf.jkt`" fixture.
+Both collections must use the **same** environment. The Bearer collection's `Get Tokens V2` publishes `unbound_access_token` into it, and the DPoP scenarios use that as the "token with no `cnf.jkt`" fixture.
 
 ## Run order
 
-1. `certify- Mock IDA` → **VCI** folder, top to bottom.
-   `Authorize / OAuthdetails request V2` must run before `Send OTP` — it sets
-   `transaction_id`, `oauth_details_key` and `oauth_details_hash`.
+1. `certify- Mock IDA` → **VCI** folder, top to bottom. `Authorize / OAuthdetails request V2` must run before `Send OTP` — it sets `transaction_id`, `oauth_details_key` and `oauth_details_hash`.
 2. `certify- Mock IDA - DPoP` → **VCI (DPoP)** folder (steps 1–8, in order).
-3. `certify- Mock IDA - DPoP` → **DPoP scenarios**. These depend on both
-   `access_token` (bound, from step 2) and `unbound_access_token` (from step 1).
+3. `certify- Mock IDA - DPoP` → **DPoP scenarios**. These depend on both `access_token` (bound, from step 2) and `unbound_access_token` (from step 1).
 
 ## Switching deployments
 
-The environment ships pointing at a **local** deployment. To run against MOSIP's
-released/collab deployment, change these five variables — nothing else:
+The environment ships pointing at a **local** deployment. To run against one of MOSIP's hosted deployments, change these variables — nothing else:
 
-| Variable | Local (as shipped) | MOSIP released (collab) |
+| Variable | Local (as shipped) | MOSIP released | MOSIP collab |
+|---|---|---|---|
+| `authServerUrl` | `http://localhost:8188/v1/esignet` | `https://esignet-mock.released.mosip.net/v1/esignet` | `https://esignet-mock.collab.mosip.net/v1/esignet` |
+| `aud` | `http://localhost:8188/v1/esignet/oauth/v2/token` | `https://esignet-mock.released.mosip.net/v1/esignet/oauth/v2/token` | `https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token` |
+| `mockIdentitySystemUrl` | `http://localhost:8182/v1/mock-identity-system` | `https://api.released.mosip.net/v1/mock-identity-system` | `https://api.collab.mosip.net/v1/mock-identity-system` |
+| `internalUrl` | *(unused)* | `https://api-internal.released.mosip.net` | `https://api-internal.collab.mosip.net` |
+| `relayingPartyId` | `mock-relying-party-id` | `mock-relying-party-id` | `mpartner-default-esignet` |
+
+`internalUrl` is only needed to register clients — see *Registering clients on a hosted deployment* below. The published environment ships it empty.
+
+### `certifyUrl` and `audUrl` do not change
+
+Both describe **certify**, which stays on `http://localhost:8091` no matter which eSignet you point at. Switching `authServerUrl` to a hosted host and dragging `audUrl` along with it is the single most common way to break this suite.
+
+`Get Farmer Credential` signs the OpenID4VCI proof with `"aud": audUrl`, and `JwtProofValidator` compares it as an exact string against certify's `mosip.certify.identifier`. It must equal the `credential_issuer` value certify advertises:
+
+```bash
+curl -s $certifyUrl/.well-known/openid-credential-issuer \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['credential_issuer'])"
+```
+
+A wrong `audUrl` fails with `400 invalid_proof` — the same error as a wrong `iss`, a missing `iat`, or an unsupported `alg`, and indistinguishable from them without reading certify's log. A stale `c_nonce` is the one nearby failure that reports differently: `400 invalid_nonce`.
+
+`http://certify-nginx:80` is certify's identifier only when certify itself runs **inside** the docker-compose network. Running certify as a host JVM it is `http://localhost:8091`, and the compose-internal hostname resolves nowhere.
+
+### Which deployments can run the DPoP collection
+
+DPoP arrived in eSignet **1.8**, so this depends on the host's build:
+
+| Deployment | eSignet | DPoP |
 |---|---|---|
-| `authServerUrl` | `http://localhost:8188/v1/esignet` | `https://esignet-mock.collab.mosip.net/v1/esignet` |
-| `aud` | `http://localhost:8188/v1/esignet/oauth/v2/token` | `https://esignet-mock.collab.mosip.net/v1/esignet/oauth/v2/token` |
-| `audUrl` | `http://localhost:8091` | `http://certify-nginx:80` |
-| `mockIdentitySystemUrl` | `http://localhost:8182/v1/mock-identity-system` | `https://api.collab.mosip.net/v1/mock-identity-system` |
-| `relayingPartyId` | `mock-relying-party-id` | `mpartner-default-esignet` |
+| `esignet-mock.released.mosip.net` | 1.8.0 | yes — `dpop_signing_alg_values_supported: ["RS256","PS256"]` |
+| `esignet-mock.collab.mosip.net` | pre-1.8 | no — issues tokens with no `cnf.jkt` |
+| local eSignet 1.8+ | 1.8+ | yes |
 
-`certifyUrl` is `http://localhost:8091/v1/certify` in both — the docker-compose
-stack publishes certify on the same host port.
+Against collab the **Bearer** collection works and every DPoP scenario fails by construction: without `cnf.jkt` certify can only ever answer "access token is not DPoP-bound".
 
-### `audUrl` is certify's identifier, not an endpoint
+Note the advertised algorithms are RSA only. A wallet key on an EC curve is rejected at the token endpoint, and the error does not name the algorithm.
 
-`Get Farmer Credential` signs the OpenID4VCI proof with `"aud": audUrl`. It must
-equal the `credential_issuer` value that certify advertises at
-`GET {{certifyUrl}}/.well-known/openid-credential-issuer` — **not** the
-credential endpoint URL. Both a wrong host and the endpoint URL itself fail the
-same way, with `400 invalid_proof`.
+### eSignet's issuer differs per deployment
 
-### The DPoP collection cannot run against collab
+Certify's `mosip.certify.authn.issuer-uri` must equal the token's `iss` claim exactly (`JwtIssuerValidator`), and hosted eSignets disagree about what that is:
 
-Switching the five variables makes the **Bearer** collection work against
-collab. It will not make the DPoP collection work: DPoP arrived in eSignet
-**1.8**, and the collab mock runs an older build that advertises no
-`dpop_signing_alg_values_supported` and issues tokens with no `cnf.jkt`. Without
-that claim certify can only ever answer "access token is not DPoP-bound", so
-every DPoP scenario fails by construction.
+| Deployment | `iss` in the access token |
+|---|---|
+| released | `https://esignet-mock.released.mosip.net` |
+| collab | `https://esignet-mock.collab.mosip.net/v1/esignet` |
 
-The DPoP collection needs an authorization server at eSignet 1.8 or later.
+Collab's discovery document advertises the bare host while its tokens carry the `/v1/esignet` suffix; released's discovery and tokens agree. Neither rule generalises — decode a real token per environment and copy its `iss`. A mismatch gives `401 invalid_token` / "The access token is invalid."
 
 ## Client registration
 
@@ -65,40 +79,44 @@ Two OIDC clients are expected, differing only in `dpop_bound_access_tokens`:
 | `clientId` | `wallet-demo` | `false` | Bearer flow; also the unbound-token fixture |
 | `dpopClientId` | `dpop-wallet-demo` | `true` | DPoP flow |
 
-Both authenticate with `private_key_jwt`. Register each with the public half of
-the matching environment key — `privateKey_jwk` and `dpop_privateKey_jwk`.
+Both authenticate with `private_key_jwt`. Register each with the public half of the matching environment key — `privateKey_jwk` and `dpop_privateKey_jwk`.
 
-They cannot share one key: eSignet enforces a unique public key per client and
-rejects the second registration with `duplicate_public_key`.
+They cannot share one key: eSignet enforces a unique public key per client and rejects the second registration with `duplicate_public_key`.
 
-Note `wallet_private_key` is a **different** key again — it signs the DPoP
-proofs and is what `cnf.jkt` fingerprints. `dpop_privateKey_jwk` proves *which
-client* is calling; `wallet_private_key` proves *which sender* holds the token.
+Note `wallet_private_key` is a **different** key again — it signs the DPoP proofs and is what `cnf.jkt` fingerprints. `dpop_privateKey_jwk` proves *which client* is calling; `wallet_private_key` proves *which sender* holds the token.
+
+### Registering clients on a hosted deployment
+
+Against a local eSignet container `client-mgmt` is unauthenticated and the `OIDC Client Mgmt` folders work on their own. On collab and released it is a Spring OAuth2 resource server, so registration needs a partner token first.
+
+1. **`1. Authenticate (partner)`** → `{{internalUrl}}/v1/authmanager/authenticate/clientidsecretkey` with `appId: partner`, `clientId: mosip-pms-client`, and that deployment's secret. The token comes back in the **`Set-Cookie` header**, not the body — the body only carries `{status, message}`. The test script extracts it into `authToken`.
+2. **`2. Get CSRF token`** → the body value, not the cookie (see *CSRF* below).
+3. **`3. Create DPoP client`** / **`4. Create Bearer client`**.
+
+Three things reliably go wrong here:
+
+- **The token goes in a header, not a cookie.** `Authorization: Bearer <token>` works; `Cookie: Authorization=<token>` is ignored and answers `Full authentication is required to access this resource` at HTTP 200. A malformed token is different again: HTTP 401 with an **empty body** and the real reason in the `WWW-Authenticate` response header. Read that header — it distinguishes `Malformed token` from `expired` from `insufficient_scope`, none of which appear in the body.
+- **The token must carry `add_oidc_client`.** Decode it and check `scope`. A token from the wrong appId authenticates fine and still cannot register.
+- **The partner secret is deployment-specific.** It is deliberately *not* committed: set `partnerSecret` in your own environment. A secret from one deployment gives `401 Unauthorized` on another, surfaced as `{"errorCode":"500","message":"401 Unauthorized: [no body]"}`.
+
+### The registered public key cannot be changed
+
+`PUT /client-mgmt/oidc-client/{clientId}` rejects a `publicKey` field outright — `ClientDetailUpdateRequestV3` has no such property — and there is no `GET` to read a registered key back. Meanwhile the pre-request scripts generate a **fresh keypair on every run** and overwrite `dpop_privateKey_jwk`.
+
+So the moment a clientId exists it is welded to whatever key was current at creation. If that private half is lost, the client is unusable and re-registering answers `duplicate_client_id`. **Use a new clientId** — there is no recovery path.
+
+`additionalConfig` *is* updatable, so `dpop_bound_access_tokens` can be flipped in place on an existing client without touching its key.
 
 ## The committed keys are demo-only
 
-`privateKey_jwk`, `dpop_privateKey_jwk`, `wallet_private_key` and
-`other_private_key` are complete RSA private keys, including `d`, `p` and `q`.
-They are committed to a public repository, so they are public from the moment
-they merge and must be treated as compromised.
+`privateKey_jwk`, `dpop_privateKey_jwk`, `wallet_private_key` and `other_private_key` are complete RSA private keys, including `d`, `p` and `q`. They are committed to a public repository, so they are public from the moment they merge and must be treated as compromised.
 
-They exist so the collections run against a local mock-identity stack with no
-setup. **Never register them with an authorization server that issues tokens for
-anything real**, and never reuse them outside this demo. To rotate, generate a
-fresh keypair, re-register the client with the new public half, and replace the
-private half here.
+They exist so the collections run against a local mock-identity stack with no setup. **Never register them with an authorization server that issues tokens for anything real**, and never reuse them outside this demo. To rotate, generate a fresh keypair, re-register the client with the new public half, and replace the private half here.
 
 ## Notes
 
-- **CSRF.** eSignet 1.8 (Spring Security 6, BREACH protection) puts the raw
-  token in the `XSRF-TOKEN` cookie and a masked token in the response body.
-  `X-XSRF-TOKEN` must carry the **body** value; sending the cookie value gives
-  `403 Forbidden` with an empty `path`.
-- **DPoP nonce.** eSignet always rejects the first DPoP token request with
-  `400 use_dpop_nonce` and a `DPoP-Nonce` header. Step 6 retries automatically
-  with the nonce folded into the proof; this is expected, not a failure.
-- **PKCE.** `codeVerifier`, `codeChallenge`, `codeChallengeMethod`, `code` and
-  `client_assertion` are collection-scoped in both collections and deliberately
-  absent from the environment. An environment variable of the same name would
-  shadow the collection value — an empty one breaks PKCE with
-  `unsupported_pkce_challenge_method`.
+- **CSRF.** eSignet 1.8 (Spring Security 6, BREACH protection) puts the raw token in the `XSRF-TOKEN` cookie and a masked token in the response body. `X-XSRF-TOKEN` must carry the **body** value; sending the cookie value gives `403 Forbidden` with an empty `path`.
+- **DPoP nonce.** eSignet always rejects the first DPoP token request with `400 use_dpop_nonce` and a `DPoP-Nonce` header. Step 6 retries automatically with the nonce folded into the proof; this is expected, not a failure.
+- **PKCE.** `codeVerifier`, `codeChallenge`, `codeChallengeMethod`, `code` and `client_assertion` are collection-scoped in both collections and deliberately absent from the environment. An environment variable of the same name would shadow the collection value — an empty one breaks PKCE with `unsupported_pkce_challenge_method`.
+- **Initial vs Current value.** Postman stores two values per variable and `pm.environment.get()` reads only **Current**. Importing or syncing an environment routinely leaves Current blank while Initial still displays the data, so a variable looks populated and reads as `""`. Four variables are supplied by the environment file alone and no script ever rewrites them — `pmlib_code`, `dpop_lib`, `wallet_private_key`, `other_private_key` — so for those a blank Current value never self-heals. The symptom is `JSONError: No data, empty input at 1:1` in a pre-request script, which does not name the variable. **Reset All** in the environment editor copies Initial into Current for every row. Note this also restores `dpop_privateKey_jwk` to the committed key, which will not match a client you registered yourself.
+- **Exports carry Initial values.** Exporting an environment writes the Initial column, so a shared export cannot capture a working hosted configuration and must never be used to check what someone was actually running.

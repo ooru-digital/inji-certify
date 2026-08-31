@@ -17,6 +17,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import io.mosip.certify.dpop.DpopProofValidator;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -104,11 +105,13 @@ public class ExceptionHandlerAdviceTest {
         Mockito.when(req.getAttribute(Constants.AUTH_ERROR_CODE_ATTRIBUTE))
                 .thenReturn(ErrorConstants.INVALID_DPOP_PROOF);
         Mockito.when(req.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE)).thenReturn("DPoP");
-        // @Value is not processed for an advice built with new, so the algs list the
-        // DPoP challenge advertises has to be supplied here.
-        // a misconfigured property is the only way a quote reaches algs, but the header
-        // must stay well-formed either way
-        ReflectionTestUtils.setField(advice, "dpopAllowedAlgorithms", List.of("ES256", "RS\"256"));
+        // The advice asks the validator for the list, so stand one up here: @Value is not
+        // processed for beans built with new, hence setting the field it binds.
+        // A misconfigured property is the only way a quote reaches algs, but the header
+        // must stay well-formed either way.
+        DpopProofValidator validator = new DpopProofValidator();
+        ReflectionTestUtils.setField(validator, "allowedAlgorithms", List.of("ES256", "RS\"256"));
+        ReflectionTestUtils.setField(advice, "dpopProofValidator", validator);
 
         ResponseEntity<VCError> response = advice.handleVCIControllerExceptions(
                 new NotAuthenticatedException(ErrorConstants.INVALID_DPOP_PROOF), req);

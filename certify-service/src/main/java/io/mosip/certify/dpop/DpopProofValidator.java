@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.ParseException;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -26,9 +27,12 @@ import org.springframework.stereotype.Component;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.ECDSAVerifier;
+import com.nimbusds.jose.crypto.Ed25519Verifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
+import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import com.nimbusds.jose.jwk.JWK;
+import com.nimbusds.jose.jwk.OctetKeyPair;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
@@ -93,8 +97,22 @@ public class DpopProofValidator {
      * in its discovery metadata. Certify publishes no protected-resource metadata
      * document to carry that, so it stays a property until it does.
      */
-    @Value("${mosip.certify.dpop.allowed-algorithms:ES256,ES384,ES512,RS256,PS256}")
+    @Value("${mosip.certify.dpop.allowed-algorithms:ES256,ES384,ES512,RS256,PS256,EdDSA}")
     private List<String> allowedAlgorithms;
+
+    /**
+     * The algorithms this validator accepts, for the {@code algs} parameter of a DPoP
+     * challenge (RFC 9449 §5.1).
+     *
+     * <p>{@code ExceptionHandlerAdvice} reads the list from here rather than binding the
+     * property a second time, so what a challenge advertises cannot drift from what is
+     * enforced. One property, one binding, one list.
+     *
+     * @return an unmodifiable view, empty rather than null when none are configured
+     */
+    public List<String> getAllowedAlgorithms() {
+        return allowedAlgorithms == null ? List.of() : Collections.unmodifiableList(allowedAlgorithms);
+    }
 
     /** How far in the past a proof's {@code iat} may be. */
     @Value("${mosip.certify.dpop.proof-max-age:60}")
@@ -218,6 +236,17 @@ public class DpopProofValidator {
                 return new RSASSAVerifier(((RSAKey) jwk).toRSAPublicKey());
             case "EC":
                 return new ECDSAVerifier((ECKey) jwk);
+            case "OKP":
+                // Only the Edwards curves sign; X25519 and X448 are key-agreement keys and
+                // can never verify anything, so they are named rather than falling through
+                // to the symmetric-key message below, which would misdescribe them.
+                OctetKeyPair okp = (OctetKeyPair) jwk;
+                if (!Curve.Ed25519.equals(okp.getCurve())) {
+                    log.error("Unsupported OKP curve on a DPoP proof: {}", okp.getCurve());
+                    throw new InvalidDpopHeaderException(
+                            "DPoP proof jwk curve " + okp.getCurve() + " cannot verify a signature");
+                }
+                return new Ed25519Verifier(okp);
             default:
                 log.error("Unsupported JWK key type: {}", jwk.getKeyType());
                 throw new InvalidDpopHeaderException("DPoP proof jwk must be an asymmetric key");
@@ -239,9 +268,9 @@ public class DpopProofValidator {
             throw new InvalidDpopHeaderException("DPoP proof htm does not match the request method");
         }
 
-        String expected = normalizeUri(domainUrl + request.getRequestURI());
+        String expected = normalizeConfiguredUri(domainUrl + request.getRequestURI());
         // RFC 9449 §4.3: compare ignoring query and fragment, which normalizeUri drops.
-        String htu = normalizeUri(getRequiredClaim(claims, HTU));
+        String htu = normalizeProofHtu(getRequiredClaim(claims, HTU));
         if (!expected.equals(htu)) {
             log.error("DPoP htu mismatch. expected={} received={}", expected, htu);
             throw new InvalidDpopHeaderException("DPoP proof htu does not match the request URI");
@@ -369,28 +398,75 @@ public class DpopProofValidator {
         return (String) value;
     }
 
-    /** Lowercases scheme and host, drops the default port, query and fragment. */
-    private String normalizeUri(String raw) {
+    /**
+     * Lowercases scheme and host, drops the default port, query and fragment.
+     *
+     * <p>Returns {@code null} rather than throwing when the input is not an absolute
+     * URI, because the same normalization runs over two inputs with opposite blame:
+     * the wallet's {@code htu} claim and this deployment's own configured base. The
+     * callers below attach the exception, so a malformed property is never reported
+     * as a malformed proof.
+     *
+     * @return the normalized form, or {@code null} if {@code raw} has no scheme or host
+     * @throws URISyntaxException if {@code raw} does not parse as a URI at all
+     */
+    private String normalizeUri(String raw) throws URISyntaxException {
+        URI uri = new URI(raw.trim());
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (scheme == null || host == null) {
+            return null;
+        }
+        scheme = scheme.toLowerCase(Locale.ROOT);
+        host = host.toLowerCase(Locale.ROOT);
+        int port = uri.getPort();
+        if (("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443)) {
+            port = -1;
+        }
+        String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+        if (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return scheme + "://" + host + (port == -1 ? "" : ":" + port) + path;
+    }
+
+    /** The wallet's {@code htu} claim. A failure here is the caller's to fix. */
+    private String normalizeProofHtu(String raw) {
         try {
-            URI uri = new URI(raw.trim());
-            String scheme = uri.getScheme();
-            String host = uri.getHost();
-            if (scheme == null || host == null) {
+            String normalized = normalizeUri(raw);
+            if (normalized == null) {
                 throw new InvalidDpopHeaderException("DPoP proof htu is not an absolute URI");
             }
-            scheme = scheme.toLowerCase(Locale.ROOT);
-            host = host.toLowerCase(Locale.ROOT);
-            int port = uri.getPort();
-            if (("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443)) {
-                port = -1;
-            }
-            String path = uri.getRawPath() == null ? "" : uri.getRawPath();
-            if (path.length() > 1 && path.endsWith("/")) {
-                path = path.substring(0, path.length() - 1);
-            }
-            return scheme + "://" + host + (port == -1 ? "" : ":" + port) + path;
+            return normalized;
         } catch (URISyntaxException e) {
             throw new InvalidDpopHeaderException("DPoP proof htu is not a valid URI");
         }
+    }
+
+    /**
+     * The URI this deployment expects, built from {@code mosip.certify.domain.url}.
+     *
+     * <p>A failure here is a misconfiguration of this service, never the caller's, so it
+     * must not answer {@code invalid_dpop_proof}: that tells every wallet its proof is
+     * malformed when the property is at fault, and no client-side change could fix it.
+     * The offending value is logged for the operator and kept out of the response.
+     *
+     * <p>A value with no scheme is the usual cause - {@code certify-nginx:80} parses as
+     * scheme {@code certify-nginx} with a null host, so it fails here rather than at
+     * startup, and only on DPoP requests.
+     */
+    private String normalizeConfiguredUri(String raw) {
+        String normalized;
+        try {
+            normalized = normalizeUri(raw);
+        } catch (URISyntaxException e) {
+            log.error("mosip.certify.domain.url does not parse as a URI: {}", raw, e);
+            throw new IllegalStateException("Cannot resolve the expected DPoP htu: certify's domain URL is misconfigured");
+        }
+        if (normalized == null) {
+            log.error("mosip.certify.domain.url is not an absolute http(s) URI: {}", raw);
+            throw new IllegalStateException("Cannot resolve the expected DPoP htu: certify's domain URL is misconfigured");
+        }
+        return normalized;
     }
 }

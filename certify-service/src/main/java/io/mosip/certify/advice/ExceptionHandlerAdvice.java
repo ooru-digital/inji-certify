@@ -12,10 +12,10 @@ import io.mosip.certify.core.dto.VCError;
 import io.mosip.certify.core.dto.OAuthTokenError;
 import io.mosip.certify.core.exception.*;
 import io.mosip.certify.core.util.CommonUtil;
+import io.mosip.certify.dpop.DpopProofValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.MessageSource;
 import org.springframework.context.NoSuchMessageException;
 import org.springframework.http.HttpHeaders;
@@ -62,12 +62,17 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
     MessageSource messageSource;
 
     /**
-     * Advertised in the {@code algs} parameter of a DPoP challenge (RFC 9449 §5.1),
-     * so a client that guessed wrong is told what this issuer will accept. Same list
-     * {@link io.mosip.certify.dpop.DpopProofValidator} enforces.
+     * Source of the {@code algs} parameter advertised in a DPoP challenge (RFC 9449
+     * §5.1), so a client that guessed wrong is told what this issuer will accept.
+     *
+     * <p>The validator is asked for the list rather than the property being bound here a
+     * second time: two bindings of one key can be edited apart, and a challenge that
+     * advertises algorithms the validator does not accept sends a wallet developer
+     * chasing a fault that is not theirs. Optional so an advice built outside a Spring
+     * context still answers, just without the {@code algs} hint.
      */
-    @Value("${mosip.certify.dpop.allowed-algorithms:ES256,ES384,ES512,RS256,PS256}")
-    private List<String> dpopAllowedAlgorithms;
+    @Autowired(required = false)
+    private DpopProofValidator dpopProofValidator;
 
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpHeaders headers,
@@ -216,7 +221,7 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             // not told to retry with Bearer - which it must not do for a bound token. The
             // algs parameter advertises what the proof may be signed with, as eSignet does.
             Object schemeAttribute = request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE);
-            String scheme = (schemeAttribute instanceof String) ? (String) schemeAttribute : "Bearer";
+            String scheme = (schemeAttribute instanceof String) ? (String) schemeAttribute : Constants.SCHEME_BEARER;
             // description can carry proof-supplied text - DpopProofValidator names the
             // rejected alg, for instance - so it is escaped before going into the header.
             // Unescaped, a proof with alg = x", scope="openid would inject an auth-param.
@@ -226,9 +231,12 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             // algs comes from configuration rather than the request, so it is not
             // attacker-controlled - but it is still a dynamic value, and escaping it
             // keeps every quoted auth-param in this header safe by the same rule.
-            if(INVALID_DPOP_PROOF.equals(errorCode) && dpopAllowedAlgorithms != null) {
+            List<String> algs = dpopProofValidator == null
+                    ? List.of()
+                    : dpopProofValidator.getAllowedAlgorithms();
+            if(INVALID_DPOP_PROOF.equals(errorCode) && !algs.isEmpty()) {
                 challenge.append(", algs=\"")
-                        .append(quoteAuthParam(String.join(" ", dpopAllowedAlgorithms)))
+                        .append(quoteAuthParam(String.join(" ", algs)))
                         .append('"');
             }
             headers.set(HttpHeaders.WWW_AUTHENTICATE, challenge.toString());
