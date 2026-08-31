@@ -44,7 +44,7 @@ on:
         required: false
       registry_password:
         required: false
-      discord_webhook:
+      DISCORD_STAGING_BUILDS_URL:
         required: false
       NEXUS_USERNAME:
         required: true
