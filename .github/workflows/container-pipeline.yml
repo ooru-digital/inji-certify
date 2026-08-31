@@ -46,6 +46,12 @@ on:
         required: false
       discord_webhook:
         required: false
+      NEXUS_USERNAME:
+        required: true
+      NEXUS_PASSWORD:
+        required: true
+      NEXUS_URL:
+        required: true
 
     outputs:
       image_tag:
@@ -191,12 +197,13 @@ jobs:
             exit 0
           fi
 
-      - name: Upload Gitleaks Report
+      - name: Upload Gitleaks Report to Nexus
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-report
-          path: gitleaks-report.txt
+        continue-on-error: true
+        run: |
+          curl -sS -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            --upload-file gitleaks-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/gitleaks-report.txt"
 
       - name: Set image metadata
         id: image_meta
@@ -459,12 +466,13 @@ jobs:
 
           curl -sS "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK"
 
-      - name: Upload Trivy Report
+      - name: Upload Trivy Report to Nexus
         if: always() && (steps.trivy_report.outputs.status == 'PASSED' || steps.trivy_report.outputs.status == 'FAILED')
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-report
-          path: trivy-report.txt
+        continue-on-error: true
+        run: |
+          curl -sS -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            --upload-file trivy-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/trivy-report.txt"
 
       - name: Registry Login
         if: ${{ inputs.push_image && steps.trivy_report.outputs.status == 'PASSED' }}

@@ -18,7 +18,7 @@ on:
 jobs:
   classify:
     name: Classify Tag
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     outputs:
       tag_kind: ${{ steps.check.outputs.tag_kind }}
     steps:
@@ -50,7 +50,11 @@ jobs:
     needs: [classify]
     if: ${{ needs.classify.outputs.tag_kind != 'invalid' }}
     uses: ./.github/workflows/unit-test.yml
-    secrets: {}
+    secrets:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
 
   container_pipeline:
     name: Staging Container Pipeline
@@ -71,6 +75,9 @@ jobs:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
 
   deploy:
     name: Staging Deploy To EKS
@@ -93,6 +100,9 @@ jobs:
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
 
   promote_to_production:
     name: Promote Release Image To Production Registry
@@ -142,25 +152,28 @@ jobs:
         promote_to_production,
       ]
     if: ${{ always() && needs.classify.outputs.tag_kind != 'invalid' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     env:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
     steps:
-      - name: Download Unit Test Report
+      - name: Download Unit Test Report from Nexus
         if: env.DISCORD_WEBHOOK != ''
-        uses: actions/download-artifact@v4
         continue-on-error: true
-        with:
-          name: unit-test-report
-          path: reports/unit-test
+        run: |
+          mkdir -p reports/unit-test
+          curl -sS -f -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            -o reports/unit-test/unit-test-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/unit-test-report.txt" || true
 
-      - name: Download Trivy Report
+      - name: Download Trivy Report from Nexus
         if: env.DISCORD_WEBHOOK != ''
-        uses: actions/download-artifact@v4
         continue-on-error: true
-        with:
-          name: trivy-report
-          path: reports/trivy
+        run: |
+          mkdir -p reports/trivy
+          curl -sS -f -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            -o reports/trivy/trivy-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/trivy-report.txt" || true
+
 
       - name: Determine outcome and send single Discord alert
         if: env.DISCORD_WEBHOOK != ''

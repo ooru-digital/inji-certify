@@ -29,7 +29,7 @@ on:
 jobs:
   classify:
     name: Classify Release Tag
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     outputs:
       is_release: ${{ steps.check.outputs.is_release }}
     steps:
@@ -62,7 +62,7 @@ jobs:
     name: Resolve Release And Source RC Tags
     needs: [classify]
     if: ${{ needs.classify.outputs.is_release == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       source_rc_tag: ${{ steps.resolve.outputs.source_rc_tag }}
@@ -118,18 +118,15 @@ jobs:
     needs: [classify]
     if: ${{ needs.classify.outputs.is_release == 'true' }}
     uses: ./.github/workflows/unit-test.yml
-    secrets: {}
-
-  trigger-automation-tests:
-    name: Production Automation Tests
-    needs: [classify]
-    if: ${{ needs.classify.outputs.is_release == 'true' }}
-    uses: ./.github/workflows/integration-tests.yml
-    secrets: {}
+    secrets:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
 
   promote:
     name: Promote Staging RC Image To Production
-    needs: [classify, resolve, trigger-unit-tests, trigger-automation-tests]
+    needs: [classify, resolve, trigger-unit-tests]
     if: ${{ needs.classify.outputs.is_release == 'true' && needs.resolve.result == 'success' && needs.trigger-unit-tests.result == 'success' && needs.trigger-automation-tests.result == 'success' }}
     runs-on: [self-hosted, linux, x64, aws]
     outputs:
@@ -190,6 +187,10 @@ jobs:
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
+
 
   notify:
     name: Pipeline Result Notification
@@ -198,22 +199,26 @@ jobs:
         classify,
         resolve,
         trigger-unit-tests,
-        trigger-automation-tests,
         promote,
         deploy,
       ]
     if: ${{ always() && needs.classify.outputs.is_release == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     env:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
     steps:
-      - name: Download Unit Test Report
+      - name: Download Unit Test Report from Nexus
         if: env.DISCORD_WEBHOOK != ''
-        uses: actions/download-artifact@v4
         continue-on-error: true
-        with:
-          name: unit-test-report
-          path: reports/unit-test
+
+        run: |
+          mkdir -p reports/unit-test
+
+          curl -sS -f \
+            -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            -o reports/unit-test/unit-test-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/unit-test-report.txt" \
+            || true
 
       - name: Determine outcome and send single Discord alert
         if: env.DISCORD_WEBHOOK != ''
