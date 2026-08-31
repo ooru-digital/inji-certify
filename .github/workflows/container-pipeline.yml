@@ -52,6 +52,10 @@ on:
         required: true
       NEXUS_URL:
         required: true
+      DOCKERHUB_USERNAME:    
+        required: false
+      DOCKERHUB_TOKEN:       
+        required: false
 
     outputs:
       image_tag:
@@ -246,7 +250,6 @@ jobs:
           echo "Building certify-service..."
           mvn clean install -f certify-service/pom.xml -Dmaven.test.skip=true -Dgpg.skip=true
 
-      # 2. Login & Push certify-service image right after its Maven build
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
