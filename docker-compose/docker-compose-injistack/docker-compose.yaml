@@ -17,6 +17,7 @@ services:
 
   certify:
     image: inji-certify-with-plugins-mdl:0.14.0-prod
+    restart: unless-stopped
     user: root
     ports:
       - 8090:8090
