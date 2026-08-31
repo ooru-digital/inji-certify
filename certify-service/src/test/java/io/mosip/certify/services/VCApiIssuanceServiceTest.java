@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -92,12 +93,15 @@ public class VCApiIssuanceServiceTest {
     @Test
     public void should_wrapCredentialConfigException_when_configMissing() throws Exception {
         VCApiIssueRequest request = requestWithCredential();
+        CredentialConfigException cause =
+                new CredentialConfigException(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, "Config not found");
         when(credentialConfigurationService.getCredentialConfigurationById("unknown-config"))
-                .thenThrow(new CredentialConfigException(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, "Config not found"));
+                .thenThrow(cause);
 
         CertifyException ex = assertThrows(CertifyException.class,
                 () -> vcApiIssuanceService.issue(request, "unknown-config"));
         assertEquals(ErrorConstants.CONFIG_NOT_FOUND_BY_ID, ex.getErrorCode());
+        assertSame(cause, ex.getCause());
         verify(vcApiCredentialIssuer, never()).issueValidatedCredential(any(), any());
     }
 

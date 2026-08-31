@@ -189,12 +189,13 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
         if (ex instanceof CertifyException) {
             String errorCode = ((CertifyException) ex).getErrorCode();
             String errorMessage = ex.getMessage();
-            HttpStatus status = UNKNOWN_ERROR.equals(errorCode) || VC_ISSUANCE_FAILED.equals(errorCode)
+            HttpStatus status = isVcApiServerError(errorCode)
                     ? HttpStatus.INTERNAL_SERVER_ERROR : HttpStatus.BAD_REQUEST;
             return problemDetails(status, problemTypeFor(errorCode), errorMessage, instance);
         }
         log.error("Unhandled exception in VC API handler", ex);
-        return problemDetails(HttpStatus.INTERNAL_SERVER_ERROR, ProblemDetailsTypes.ABOUT_BLANK, ex.getMessage(), instance);
+        return problemDetails(HttpStatus.INTERNAL_SERVER_ERROR, ProblemDetailsTypes.ABOUT_BLANK,
+                HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(), instance);
     }
 
     private ResponseEntity<ProblemDetails> problemDetails(HttpStatus status, String type, String detail, String instance) {
@@ -219,10 +220,16 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
         if (UNKNOWN_OPTION_PROVIDED.equals(errorCode)) {
             return ProblemDetailsTypes.UNKNOWN_OPTION_PROVIDED;
         }
-        if (UNKNOWN_ERROR.equals(errorCode) || VC_ISSUANCE_FAILED.equals(errorCode)) {
+        if (isVcApiServerError(errorCode)) {
             return ProblemDetailsTypes.ABOUT_BLANK;
         }
         return ProblemDetailsTypes.MALFORMED_VALUE_ERROR;
+    }
+
+    private boolean isVcApiServerError(String errorCode) {
+        return UNKNOWN_ERROR.equals(errorCode)
+                || VC_ISSUANCE_FAILED.equals(errorCode)
+                || STATUS_LIST_INDEX_UNAVAILABLE.equals(errorCode);
     }
 
     public ResponseEntity<VCError> handleVCIControllerExceptions(Exception ex, HttpServletRequest request) {

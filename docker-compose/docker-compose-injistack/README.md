@@ -149,8 +149,10 @@ mosip.certify.vc-api.enabled=true
 mosip.certify.vc-api.api-keys=local-dev-secret
 ```
 
-Use the `X-API-Key` header with the configured key. The onboarded credential configuration
-must be VCDM 2.0 `ldp_vc` with matching `@context`, `type`, and `issuer` (`didUrl`).
+Use the `X-API-Key` header with the configured key, and
+`X-Credential-Configuration-Id` with the onboarded VCDM 2.0 `ldp_vc` config id.
+Omitting either header causes the request to fail. The config must match request
+`@context`, `type`, and `issuer` (`didUrl`).
 The seeded `FarmerCredential` row is VCDM 1.1 for OpenID4VCI; onboard a VCDM 2.0 config
 (or use the Postman "W3C VC API" folder) before calling this endpoint.
 

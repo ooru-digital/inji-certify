@@ -19,7 +19,8 @@ public class VCApiIssueRequest {
 
     /**
      * OPTIONAL. W3C issue options object for request-shape compatibility.
-     * Must be omitted or empty; proof hints are not applied in this release.
+     * Must be omitted or empty; non-blank proof hints are hard-rejected with
+     * {@code UNKNOWN_OPTION_PROVIDED} (not silently ignored).
      * Config id is not taken from options — use {@code X-Credential-Configuration-Id}.
      */
     private VCApiIssueOptions options;

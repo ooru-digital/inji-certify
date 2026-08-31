@@ -20,6 +20,9 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +31,7 @@ import java.util.Optional;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import org.mockito.InOrder;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -289,6 +293,53 @@ public class VCApiCredentialIssuerTest {
         org.json.JSONObject signedPayload = new org.json.JSONObject(unsignedCaptor.getValue());
         assertEquals("2026-01-01T00:00:00.000Z", signedPayload.getString(VCDM2Constants.VALID_FROM));
         assertEquals("2028-01-01T00:00:00.000Z", signedPayload.getString(VCDM2Constants.VALID_UNTIL));
+    }
+
+    @Test
+    public void should_defaultValidFromAndValidUntil_when_bothOmittedFromRequest() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        Map<String, Object> credential = validCredential();
+        credential.remove("validFrom");
+        credential.remove("validUntil");
+
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(signed);
+        ArgumentCaptor<String> unsignedCaptor = ArgumentCaptor.forClass(String.class);
+        when(credentialBean.addProof(unsignedCaptor.capture(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+
+        Instant before = Instant.now().minusSeconds(2);
+        assertNotNull(vcApiCredentialIssuer.issueValidatedCredential(credential, config).verifiableCredential());
+        Instant after = Instant.now().plusSeconds(2);
+
+        org.json.JSONObject signedPayload = new org.json.JSONObject(unsignedCaptor.getValue());
+        Instant validFrom = Instant.parse(signedPayload.getString(VCDM2Constants.VALID_FROM));
+        Instant validUntil = Instant.parse(signedPayload.getString(VCDM2Constants.VALID_UNTIL));
+        assertTrue(validFrom.equals(before) || validFrom.isAfter(before));
+        assertTrue(validFrom.equals(after) || validFrom.isBefore(after));
+        assertEquals(Duration.parse("P730D"), Duration.between(validFrom, validUntil));
+    }
+
+    @Test
+    public void should_parseBase64VcTemplate_when_templateIsEncoded() throws Exception {
+        CredentialConfigurationDTO config = ldpConfig();
+        String plainTemplate = config.getVcTemplate();
+        config.setVcTemplate(org.apache.commons.codec.binary.Base64.encodeBase64String(
+                plainTemplate.getBytes(StandardCharsets.UTF_8)));
+
+        W3CJsonLD credentialBean = org.mockito.Mockito.mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(credentialBean));
+        JsonLDObject signed = JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        VCResult<JsonLDObject> result = new VCResult<>();
+        result.setCredential(signed);
+        when(credentialBean.addProof(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> result);
+
+        assertNotNull(vcApiCredentialIssuer.issueValidatedCredential(validCredential(), config).verifiableCredential());
+        verify(statusListCredentialService).addCredentialStatus(any(), eq("revocation"));
     }
 
     @Test

@@ -104,8 +104,8 @@ Content-Type: application/json
 
 `options` may be omitted or `{}` for W3C request-shape compatibility. Proof hints
 (`challenge`, `domain`, `verificationMethod`, `type`, `proofPurpose`, `created`) are **not**
-applied by Certify signing in this phase — a non-empty value is rejected with `400` so clients
-do not receive a signed VC that silently omits requested proof fields. Config id is **not**
+applied by Certify signing. A non-empty value is **hard-rejected** with `400`
+(`UNKNOWN_OPTION_PROVIDED`) — these fields are not silently ignored. Config id is **not**
 taken from `options` — use `X-Credential-Configuration-Id`.
 
 `validFrom` and `validUntil` follow [VCDM 2.0 validity period](https://www.w3.org/TR/vc-data-model-2.0/#validity-period):
@@ -213,6 +213,7 @@ flowchart TB
     end
 
     Client -->|"API key + full credential + config header"| VCAPI --> VAS
+    VAS -->|"reject non-empty options proof hints"| VAS
     VAS -->|"load config by X-Credential-Configuration-Id"| VAS --> Issuer
     Issuer -->|validate context type issuer / VCDM2 / no proof| Issuer
     Issuer --> ST
@@ -236,6 +237,7 @@ sequenceDiagram
     Ctrl->>F: Validate X-API-Key
     F-->>Ctrl: OK
     Ctrl->>Svc: issue(request, configIdFromHeader)
+    Svc->>Svc: Reject non-empty options proof hints
     Svc->>Svc: Load active credential_config by id
     Svc->>Val: Match context type issuer format VCDM2
     alt mismatch
@@ -261,16 +263,18 @@ sequenceDiagram
 ```text
 1. Authenticate API key
 2. Require X-Credential-Configuration-Id
-3. Reject credential with existing proof
+3. Reject unsupported options (non-empty proof hints → 400 UNKNOWN_OPTION_PROVIDED)
 4. Load active credential_config by id
-5. Require ldp_vc + VCDM 2.0 context
-6. Validate @context / type / issuer against config
-7. Validate credentialSubject keys against onboarded vcTemplate
-8. Required: add credentialStatus (credentialStatusPurposes on config; enables revocation)
-9. W3CJsonLD.addProof using config signing fields (no Velocity rebuild)
-10. Validate signed credential is present (JsonLDObject); else fail
-11. Optional: ledger metadata (only after valid signed credential)
-12. Return 201 with the signed credential as the top-level JSON body
+5. Reject credential with existing proof
+6. Require ldp_vc + VCDM 2.0 context
+7. Validate @context / type / issuer against config
+8. Validate credentialSubject keys against onboarded vcTemplate
+9. Apply validFrom / validUntil (default omitted fields; reject invalid range)
+10. Required: add credentialStatus (credentialStatusPurposes on config; enables revocation)
+11. W3CJsonLD.addProof using config signing fields (no Velocity rebuild)
+12. Validate signed credential is present (JsonLDObject); else fail
+13. Optional: ledger metadata (only after valid signed credential)
+14. Return 201 with the signed credential as the top-level JSON body
 ```
 
 **Not used for this API:** `DataProviderPlugin.fetchData`, Velocity evaluation of `vcTemplate` to rebuild

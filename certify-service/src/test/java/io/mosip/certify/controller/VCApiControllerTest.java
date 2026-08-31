@@ -168,6 +168,40 @@ public class VCApiControllerTest {
     }
 
     @Test
+    public void issueCredential_whenStatusListIndexUnavailable_thenInternalServerError() throws Exception {
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
+                .thenThrow(new CertifyException(ErrorConstants.STATUS_LIST_INDEX_UNAVAILABLE,
+                        "Error fetching available index from status list"));
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.ABOUT_BLANK))
+                .andExpect(jsonPath("$.title").value("Internal Server Error"))
+                .andExpect(jsonPath("$.status").value(500));
+    }
+
+    @Test
+    public void issueCredential_whenUnhandledException_thenDoesNotExposeExceptionMessage() throws Exception {
+        Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
+                .thenThrow(new RuntimeException("duplicate key for Jane Doe at /var/lib/postgresql"));
+
+        mockMvc.perform(post("/vc-api/credentials/issue")
+                        .header(VCApiController.CREDENTIAL_CONFIGURATION_ID_HEADER, "my-credential")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(validRequest())))
+                .andExpect(status().isInternalServerError())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value(ProblemDetailsTypes.ABOUT_BLANK))
+                .andExpect(jsonPath("$.title").value("Internal Server Error"))
+                .andExpect(jsonPath("$.detail").value("Internal Server Error"))
+                .andExpect(jsonPath("$.status").value(500));
+    }
+
+    @Test
     public void issueCredential_whenUnsupportedOptions_thenFail() throws Exception {
         Mockito.when(vcApiIssuanceService.issue(Mockito.any(), Mockito.eq("my-credential")))
                 .thenThrow(new CertifyException(ErrorConstants.UNKNOWN_OPTION_PROVIDED,

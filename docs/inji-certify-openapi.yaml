@@ -1207,17 +1207,21 @@ paths:
         Certify loads the onboarded credential configuration from
         `X-Credential-Configuration-Id`, validates `@context`, `type`, `issuer` and
         `credentialSubject` keys against that config/`vcTemplate`, then signs with Key Manager.
-        `options` may be omitted or empty; non-blank proof hints are rejected until supported.
+        `options` may be omitted or empty; non-blank proof hints are hard-rejected
+        with `400` (`UNKNOWN_OPTION_PROVIDED`), not silently ignored.
         Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`. Supports `ldp_vc` only.
         A successful `201` response is the signed credential itself (not wrapped in `verifiableCredential`).
         Error responses use RFC 9457 Problem Details (`application/problem+json`), not OpenID4VCI `VCError`.
       operationId: vcApiIssueCredential
+      security:
+        - ApiKeyAuth: []
       parameters:
         - name: X-API-Key
           in: header
           required: true
           schema:
             type: string
+          description: Static API key from mosip.certify.vc-api.api-keys. Also available via Authorize.
         - name: X-Credential-Configuration-Id
           in: header
           required: true
@@ -1519,6 +1523,12 @@ tags:
     description: Operation to create pre-authorize data and get credential offer
 
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Static API key configured in mosip.certify.vc-api.api-keys
   schemas:
     CredentialConfigurationDTO:
       type: object
@@ -2821,7 +2831,8 @@ components:
         Optional W3C issue options object for request-shape compatibility.
         Must be omitted or empty in this release. Non-blank proof hints
         (type, verificationMethod, proofPurpose, created, challenge, domain)
-        are rejected with 400 (`UNKNOWN_OPTION_PROVIDED` ProblemDetails) until Certify signing applies them.
+        are hard-rejected with 400 (`UNKNOWN_OPTION_PROVIDED` ProblemDetails);
+        they are not silently ignored.
         Config id is not taken from options — use X-Credential-Configuration-Id.
       properties:
         type:

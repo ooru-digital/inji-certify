@@ -1,6 +1,5 @@
 package io.mosip.certify.services;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import foundation.identity.jsonld.JsonLDObject;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.dto.CredentialConfigurationDTO;
@@ -41,20 +40,17 @@ public class VCApiIssuanceService {
                     .issueValidatedCredential(request.getCredential(), config);
 
             return toCredentialMap(result.verifiableCredential());
-        } catch (JsonProcessingException e) {
-            log.error("VC API issue request failed during configuration lookup: {}", e.getMessage(), e);
-            throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
-                    "Invalid JSON data encountered during credential issuance");
         } catch (CredentialConfigException e) {
-            throw new CertifyException(e.getErrorCode(), e.getMessage());
+            throw new CertifyException(e.getErrorCode(), e.getMessage(), e);
         }
     }
 
     /**
      * Proof-hint options ({@code challenge}, {@code domain}, {@code verificationMethod}, etc.)
-     * are not applied by Certify signing yet. Accept null/empty {@code options} for W3C shape
-     * compatibility; reject non-empty values so clients do not receive a signed VC that omits
-     * requested proof fields.
+     * are not applied by Certify signing. A non-empty value is hard-rejected with
+     * {@code UNKNOWN_OPTION_PROVIDED} so clients do not receive a signed VC that silently
+     * omits requested proof fields. Null or empty {@code options} is accepted for W3C shape
+     * compatibility.
      */
     private void rejectUnsupportedOptions(VCApiIssueOptions options) {
         if (options == null) {

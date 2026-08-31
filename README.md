@@ -159,6 +159,7 @@ Please refer to step-by-step [migration guide](./docs/Migration-Guide-0.11.0-to-
 
     * To know more about Inji Certify in the perspective of functional and use cases you can refer to our main document: [Overview | Inji](https://docs.inji.io/inji-certify/overview)
     * Inji Certify is part of Inji Stack, to know more about Inji Stack you can refer to our stack document: [Inji | Inji](https://docs.inji.io/)
+    * W3C VC API issuance (server-to-server, feature-flagged): [W3C VC API Support](./docs/W3C-VC-API-Support.md)
 
 ## Contribution & Community
 
