@@ -149,17 +149,19 @@ public class DpopProofValidator {
     }
 
     /**
-     * @param dpopHeader        raw value of the {@code DPoP} request header
+     * @param dpopToken         the proof JWT, verbatim from the {@code DPoP} request header
      * @param accessToken       the token from the Authorization header, verbatim
      * @param accessTokenClaims decoded claims of that token, for the {@code cnf.jkt} binding
      * @param request           the inbound request, for {@code htm} / {@code htu}
      * @throws InvalidDpopHeaderException on any failure
      */
-    public ValidatedProof validate(String dpopHeader, String accessToken,
+    public ValidatedProof validate(String dpopToken, String accessToken,
                                    Map<String, Object> accessTokenClaims, HttpServletRequest request) {
-        SignedJWT jwt = parseAndValidateHeader(dpopHeader);
+        SignedJWT jwt = parseDpopToken(dpopToken);
+        JWK jwk = validateDpopHeader(jwt);
+        verifySignature(jwt, jwk);
         JWTClaimsSet claims = getClaims(jwt);
-        verifyClaimValues(claims, request);
+        verifyHtmHtuClaims(claims, request);
         verifyFreshness(claims);
         validateAthClaim(claims, accessToken);
 
@@ -179,43 +181,59 @@ public class DpopProofValidator {
         return new ValidatedProof(jkt, jti);
     }
 
-    private SignedJWT parseAndValidateHeader(String dpopHeader) {
-        if (dpopHeader == null || dpopHeader.isBlank()) {
+    /**
+     * Turns the raw header value into a JWS, checking only that there is exactly one and
+     * that it parses.
+     *
+     * <p>The catch covers the parse alone. Wrapping the header checks in it too would
+     * report a rejected {@code typ} or {@code alg} as a malformed JWS, and would convert
+     * any {@code IllegalArgumentException} raised by a bug in those checks into a caller
+     * error - hiding a fault here behind a message blaming the proof.
+     */
+    private SignedJWT parseDpopToken(String dpopToken) {
+        if (dpopToken == null || dpopToken.isBlank()) {
             throw new InvalidDpopHeaderException("DPoP header is missing");
         }
         // A repeated DPoP header arrives comma-joined; RFC 9449 §4.3 requires exactly one proof.
-        if (dpopHeader.indexOf(',') >= 0) {
+        if (dpopToken.indexOf(',') >= 0) {
             throw new InvalidDpopHeaderException("Exactly one DPoP proof is allowed");
         }
         try {
-            SignedJWT jwt = SignedJWT.parse(dpopHeader.trim());
-
-            if (jwt.getHeader().getType() == null
-                    || !DPOP_JWT_TYPE.equalsIgnoreCase(jwt.getHeader().getType().getType())) {
-                log.error("Invalid typ header: expected {}", DPOP_JWT_TYPE);
-                throw new InvalidDpopHeaderException("DPoP proof typ header must be " + DPOP_JWT_TYPE);
-            }
-
-            String alg = jwt.getHeader().getAlgorithm() == null
-                    ? null : jwt.getHeader().getAlgorithm().getName();
-            if (alg == null || !allowedAlgorithms.contains(alg)) {
-                log.error("Invalid or unsupported alg header: {}", alg);
-                throw new InvalidDpopHeaderException("Unsupported DPoP proof algorithm: " + alg);
-            }
-
-            JWK jwk = jwt.getHeader().getJWK();
-            // Nimbus rejects a non-public jwk while parsing the header, so isPrivate()
-            // here is belt and braces - reached only if that ever changes.
-            if (jwk == null || jwk.isPrivate()) {
-                log.error("Invalid jwk header");
-                throw new InvalidDpopHeaderException("DPoP proof header must embed a public jwk");
-            }
-            verifySignature(jwt, jwk);
-            return jwt;
+            return SignedJWT.parse(dpopToken.trim());
         } catch (ParseException | IllegalArgumentException e) {
             log.error("Failed to parse DPoP JWT", e);
             throw new InvalidDpopHeaderException("DPoP proof is not a well-formed JWS");
         }
+    }
+
+    /**
+     * Checks the JOSE header of a parsed proof: {@code typ}, {@code alg}, and that it
+     * embeds a public key to verify against.
+     *
+     * @return the embedded public JWK, for the signature check that follows
+     */
+    private JWK validateDpopHeader(SignedJWT jwt) {
+        if (jwt.getHeader().getType() == null
+                || !DPOP_JWT_TYPE.equalsIgnoreCase(jwt.getHeader().getType().getType())) {
+            log.error("Invalid typ header: expected {}", DPOP_JWT_TYPE);
+            throw new InvalidDpopHeaderException("DPoP proof typ header must be " + DPOP_JWT_TYPE);
+        }
+
+        String alg = jwt.getHeader().getAlgorithm() == null
+                ? null : jwt.getHeader().getAlgorithm().getName();
+        if (alg == null || !allowedAlgorithms.contains(alg)) {
+            log.error("Invalid or unsupported alg header: {}", alg);
+            throw new InvalidDpopHeaderException("Unsupported DPoP proof algorithm: " + alg);
+        }
+
+        JWK jwk = jwt.getHeader().getJWK();
+        // Nimbus rejects a non-public jwk while parsing the header, so isPrivate()
+        // here is belt and braces - reached only if that ever changes.
+        if (jwk == null || jwk.isPrivate()) {
+            log.error("Invalid jwk header");
+            throw new InvalidDpopHeaderException("DPoP proof header must embed a public jwk");
+        }
+        return jwk;
     }
 
     private void verifySignature(SignedJWT jwt, JWK jwk) {
@@ -262,7 +280,7 @@ public class DpopProofValidator {
         }
     }
 
-    private void verifyClaimValues(JWTClaimsSet claims, HttpServletRequest request) {
+    private void verifyHtmHtuClaims(JWTClaimsSet claims, HttpServletRequest request) {
         String htm = getRequiredClaim(claims, HTM);
         if (!request.getMethod().equalsIgnoreCase(htm)) {
             throw new InvalidDpopHeaderException("DPoP proof htm does not match the request method");

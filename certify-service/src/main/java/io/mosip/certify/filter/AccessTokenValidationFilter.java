@@ -50,7 +50,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
 
     static final String ERROR_INVALID_TOKEN = "The access token is invalid.";
     static final String ERROR_EXPIRED_TOKEN = "The access token has expired.";
-    static final String ERROR_MISSING_BEARER = "Authorization header with a Bearer or DPoP token is required.";
+    static final String INVALID_TOKEN_TYPE = "Authorization header with a Bearer or DPoP token is required.";
     static final String ERROR_MISSING_DPOP_PROOF = "A DPoP header is required when using the DPoP authorization scheme.";
     static final String ERROR_TOKEN_REQUIRES_DPOP = "This access token is DPoP-bound and cannot be presented as a Bearer token.";
 
@@ -118,7 +118,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
         String scheme = resolveScheme(authorizationHeader);
 
         if (scheme == null) {
-            request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, ERROR_MISSING_BEARER);
+            request.setAttribute(Constants.AUTH_ERROR_ATTRIBUTE, INVALID_TOKEN_TYPE);
         } else {
             // Recorded even on the failure paths below, so the 401 answers in the scheme
             // the caller actually used rather than always challenging with Bearer.
@@ -133,7 +133,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
                 try {
                     //Verifies signature and claim predicates, If invalid throws exception
                     Jwt jwt = getNimbusJwtDecoder().decode(token);
-                    authorizeScheme(scheme, token, jwt, request);
+                    enforceSchemeBinding(scheme, token, jwt, request);
 
                     parsedAccessToken.setClaims(new HashMap<>());
                     parsedAccessToken.getClaims().putAll(jwt.getClaims());
@@ -181,22 +181,25 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Applies the scheme-specific rules once the token itself is known to be valid.
+     * Enforces the rules tying the scheme the caller used to the binding the token carries,
+     * once the token itself is known to be valid. Both directions are checked.
      *
-     * <p>The Bearer branch is a downgrade guard: a token carrying {@code cnf.jkt} was
-     * issued sender-constrained, and accepting it as a plain Bearer token would discard
-     * exactly the protection DPoP exists to provide - a stolen token would work again.
+     * <p>Under the DPoP scheme a proof is required and must satisfy every rule in
+     * {@link DpopProofValidator}. Under Bearer the check is a downgrade guard: a token
+     * carrying {@code cnf.jkt} was issued sender-constrained, and accepting it as a plain
+     * Bearer token would discard exactly the protection DPoP exists to provide - a stolen
+     * token would work again.
      */
-    private void authorizeScheme(String scheme, String token, Jwt jwt, HttpServletRequest request) {
+    private void enforceSchemeBinding(String scheme, String token, Jwt jwt, HttpServletRequest request) {
         if (Constants.SCHEME_DPOP.equals(scheme)) {
-            String dpopHeader = request.getHeader(Constants.DPOP);
-            if (dpopHeader == null || dpopHeader.isBlank()) {
+            String dpopToken = request.getHeader(Constants.DPOP);
+            if (dpopToken == null || dpopToken.isBlank()) {
                 throw new InvalidDpopHeaderException(ERROR_MISSING_DPOP_PROOF);
             }
             // Everything the proof has to satisfy - structure, signature, request and token
             // binding, freshness, single use - is decided in there.
             DpopProofValidator.ValidatedProof proof =
-                    dpopProofValidator.validate(dpopHeader, token, jwt.getClaims(), request);
+                    dpopProofValidator.validate(dpopToken, token, jwt.getClaims(), request);
             log.debug("DPoP proof accepted for jkt={}", proof.jkt());
 
         } else if (isDpopBoundAccessToken(jwt.getClaims())) {

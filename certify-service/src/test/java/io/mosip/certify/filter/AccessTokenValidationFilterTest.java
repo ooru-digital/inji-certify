@@ -254,7 +254,7 @@ class AccessTokenValidationFilterTest {
         filter.doFilterInternal(request, response, filterChain);
 
         verify(parsedAccessToken).setActive(false);
-        assertEquals(AccessTokenValidationFilter.ERROR_MISSING_BEARER,
+        assertEquals(AccessTokenValidationFilter.INVALID_TOKEN_TYPE,
                 request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
         verify(filterChain).doFilter(request, response);
     }
