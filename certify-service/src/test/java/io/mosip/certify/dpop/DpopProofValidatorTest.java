@@ -95,18 +95,30 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void should_acceptHtu_when_itCarriesATrailingSlash() throws Exception {
-        // Deliberate, and a false-negative reduction of the kind RFC 9449 §4.3 asks for:
-        // a wallet that builds htu from a credential_endpoint ending in '/' still
-        // verifies. It cannot let a proof cross between two protected targets, because
-        // AccessTokenValidationFilter matches mosip.certify.authn.filter-urls exactly -
-        // the slashed form is not a filtered path, so no proof is validated against it
-        // and the request 404s at routing.
+    void should_reject_when_htuAddsATrailingSlashToTheRequestPath() throws Exception {
+        // RFC 9449 §4.3 permits dropping query and fragment and the normalizations of
+        // RFC 3986 §6.2.2-6.2.3. Trailing-slash removal is in neither, and /credential
+        // and /credential/ name distinct resources, so a proof bound to one must not
+        // satisfy a request for the other.
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", DOMAIN_URL + REQUEST_URI + "/").build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
-        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
+        assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request),
+                "htu does not match");
+    }
+
+    @Test
+    void should_reject_when_requestPathAddsATrailingSlashToTheHtu() throws Exception {
+        // The same mismatch from the other side: the proof names the bare path and the
+        // request carries the slash.
+        request.setRequestURI(REQUEST_URI + "/");
+        JWTClaimsSet claims = defaultClaims()
+                .claim("htu", DOMAIN_URL + REQUEST_URI).build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        assertInvalid(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request),
+                "htu does not match");
     }
 
     // ---------- structure ----------

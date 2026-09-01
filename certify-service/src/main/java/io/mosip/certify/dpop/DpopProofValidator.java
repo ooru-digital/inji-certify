@@ -442,14 +442,11 @@ public class DpopProofValidator {
         if (("http".equals(scheme) && port == 80) || ("https".equals(scheme) && port == 443)) {
             port = -1;
         }
+        // The path is compared verbatim. RFC 9449 §4.3 allows dropping query and fragment
+        // and the normalizations of RFC 3986 §6.2.2-6.2.3; trailing-slash removal is in
+        // neither, and /credential and /credential/ are distinct resources. Trimming here
+        // would let a proof bound to one match a request for the other.
         String path = uri.getRawPath() == null ? "" : uri.getRawPath();
-        // Trailing slash dropped so a wallet that appends one to the advertised endpoint
-        // still verifies. It cannot collapse two protected targets into one: the filter
-        // matches mosip.certify.authn.filter-urls exactly, so only one of the two forms
-        // is ever a DPoP-checked path.
-        if (path.length() > 1 && path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
         return scheme + "://" + host + (port == -1 ? "" : ":" + port) + path;
     }
 
