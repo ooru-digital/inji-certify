@@ -12,6 +12,8 @@ Both collections must use the **same** environment. The Bearer collection's `Get
 
 ## Run order
 
+Clients first, if they are not registered yet: `certify- Mock IDA - DPoP` → **OIDC Client Mgmt (DPoP)** for `dpop-wallet-demo`, and `certify- Mock IDA` → **OIDC Client Mgmt** for `wallet-demo`, once per deployment. Skip it against the local docker-compose stack — `setup-esignet.mjs` registers both clients there. See *Client registration*.
+
 1. `certify- Mock IDA` → **VCI** folder, top to bottom. `Authorize / OAuthdetails request V2` must run before `Send OTP` — it sets `transaction_id`, `oauth_details_key` and `oauth_details_hash`.
 2. `certify- Mock IDA - DPoP` → **VCI (DPoP)** folder (steps 1–8, in order).
 3. `certify- Mock IDA - DPoP` → **DPoP scenarios**. These depend on both `access_token` (bound, from step 2) and `unbound_access_token` (from step 1).
@@ -79,7 +81,11 @@ Two OIDC clients are expected, differing only in `dpop_bound_access_tokens`:
 | `clientId` | `wallet-demo` | `false` | Bearer flow; also the unbound-token fixture |
 | `dpopClientId` | `dpop-wallet-demo` | `true` | DPoP flow |
 
-Both authenticate with `private_key_jwt`. Register each with the public half of the matching environment key — `privateKey_jwk` and `dpop_privateKey_jwk`.
+Both authenticate with `private_key_jwt`, each with its own key — `dpop_privateKey_jwk` and `privateKey_jwk`.
+
+Each is registered from its own collection: `dpop-wallet-demo` by **`OIDC Client Mgmt (DPoP)`** in the DPoP collection, `wallet-demo` by **`OIDC Client Mgmt`** in the Bearer one. Both **generate their own keypair** and write the private half back into the environment before sending, so nothing has to be present beforehand and nothing pasted in afterwards: register, then run the flow. `Create DPoP client` additionally restores the previous private half if registration fails, rather than leaving the environment holding a key eSignet never saw. Against the local docker-compose stack `local-dev/dpop-test/setup-esignet.mjs` has already registered both and neither folder is needed.
+
+`Create DPoP client` posts to `client-mgmt/client`, **not** `client-mgmt/oidc-client`. The v1 `oidc-client` endpoint drops `additionalConfig`, so a client registered through it is never DPoP-bound — and nothing says so: registration succeeds, the token comes back without `cnf.jkt`, and every scenario then fails with "access token is not DPoP-bound".
 
 They cannot share one key: eSignet enforces a unique public key per client and rejects the second registration with `duplicate_public_key`.
 
@@ -87,11 +93,11 @@ Note `wallet_private_key` is a **different** key again — it signs the DPoP pro
 
 ### Registering clients on a hosted deployment
 
-Against a local eSignet container `client-mgmt` is unauthenticated and the `OIDC Client Mgmt` folders work on their own. On collab and released it is a Spring OAuth2 resource server, so registration needs a partner token first.
+Against a local eSignet container `client-mgmt` is unauthenticated: run requests 2–3 of the folder and skip request 1, which has nothing to talk to (`internalUrl` ships empty). On collab and released it is a Spring OAuth2 resource server, so registration needs a partner token first.
 
 1. **`1. Authenticate (partner)`** → `{{internalUrl}}/v1/authmanager/authenticate/clientidsecretkey` with `appId: partner`, `clientId: mosip-pms-client`, and that deployment's secret. The token comes back in the **`Set-Cookie` header**, not the body — the body only carries `{status, message}`. The test script extracts it into `authToken`.
 2. **`2. Get CSRF token`** → the body value, not the cookie (see *CSRF* below).
-3. **`3. Create DPoP client`** / **`4. Create Bearer client`**.
+3. **`3. Create DPoP client`**. The Bearer collection's `Create OIDC client` needs the same two steps ahead of it; it has no `Authenticate (partner)` request of its own, but `authToken` is in the shared environment, so running request 1 here covers both.
 
 Three things reliably go wrong here:
 
@@ -101,9 +107,11 @@ Three things reliably go wrong here:
 
 ### The registered public key cannot be changed
 
-`PUT /client-mgmt/oidc-client/{clientId}` rejects a `publicKey` field outright — `ClientDetailUpdateRequestV3` has no such property — and there is no `GET` to read a registered key back. Meanwhile the pre-request scripts generate a **fresh keypair on every run** and overwrite `dpop_privateKey_jwk`.
+`PUT /client-mgmt/oidc-client/{clientId}` rejects a `publicKey` field outright — `ClientDetailUpdateRequestV3` has no such property — and there is no `GET` to read a registered key back.
 
-So the moment a clientId exists it is welded to whatever key was current at creation. If that private half is lost, the client is unusable and re-registering answers `duplicate_client_id`. **Use a new clientId** — there is no recovery path.
+So the moment a clientId exists it is welded to the key it was created with. If that private half is lost, the client is unusable and re-registering answers `duplicate_client_id`. **Use a new clientId** — there is no recovery path.
+
+Both `Create …` requests generate a **fresh keypair on every run**, so the only copy of a registered client's private half is the one written into your environment. Two consequences: do not re-run them casually against a deployment where the client already exists, and do not click **Reset All** afterwards — that restores the committed demo keys over the working one. To keep a registered client, export the environment, or copy `dpop_privateKey_jwk` somewhere.
 
 `additionalConfig` *is* updatable, so `dpop_bound_access_tokens` can be flipped in place on an existing client without touching its key.
 
@@ -118,5 +126,5 @@ They exist so the collections run against a local mock-identity stack with no se
 - **CSRF.** eSignet 1.8 (Spring Security 6, BREACH protection) puts the raw token in the `XSRF-TOKEN` cookie and a masked token in the response body. `X-XSRF-TOKEN` must carry the **body** value; sending the cookie value gives `403 Forbidden` with an empty `path`.
 - **DPoP nonce.** eSignet always rejects the first DPoP token request with `400 use_dpop_nonce` and a `DPoP-Nonce` header. Step 6 retries automatically with the nonce folded into the proof; this is expected, not a failure.
 - **PKCE.** `codeVerifier`, `codeChallenge`, `codeChallengeMethod`, `code` and `client_assertion` are collection-scoped in both collections and deliberately absent from the environment. An environment variable of the same name would shadow the collection value — an empty one breaks PKCE with `unsupported_pkce_challenge_method`.
-- **Initial vs Current value.** Postman stores two values per variable and `pm.environment.get()` reads only **Current**. Importing or syncing an environment routinely leaves Current blank while Initial still displays the data, so a variable looks populated and reads as `""`. Four variables are supplied by the environment file alone and no script ever rewrites them — `pmlib_code`, `dpop_lib`, `wallet_private_key`, `other_private_key` — so for those a blank Current value never self-heals. The symptom is `JSONError: No data, empty input at 1:1` in a pre-request script, which does not name the variable. **Reset All** in the environment editor copies Initial into Current for every row. Note this also restores `dpop_privateKey_jwk` to the committed key, which will not match a client you registered yourself.
+- **Initial vs Current value.** Postman stores two values per variable and `pm.environment.get()` reads only **Current**. Importing or syncing an environment routinely leaves Current blank while Initial still displays the data, so a variable looks populated and reads as `""`. Four variables are supplied by the environment file alone and no script ever rewrites them — `pmlib_code`, `dpop_lib`, `wallet_private_key`, `other_private_key` — so for those a blank Current value never self-heals. The symptom is `JSONError: No data, empty input at 1:1` in a pre-request script, which does not name the variable. The client keys are not in that class: `dpop_privateKey_jwk` is written by `Create DPoP client` and `privateKey_jwk` by the Bearer collection's `Create OIDC client`, so running those repairs a blank value. **Reset All** in the environment editor copies Initial into Current for every row. Note this also restores `privateKey_jwk` and `dpop_privateKey_jwk` to the committed demo keys, which will not match a client you registered yourself.
 - **Exports carry Initial values.** Exporting an environment writes the Initial column, so a shared export cannot capture a working hosted configuration and must never be used to check what someone was actually running.

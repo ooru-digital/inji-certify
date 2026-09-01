@@ -27,6 +27,234 @@
 	],
 	"item": [
 		{
+			"name": "OIDC Client Mgmt (DPoP)",
+			"description": "Registers {{dpopClientId}}, the DPoP client this collection authenticates as. Run it when you are standing up your own client - against the local docker-compose stack local-dev/dpop-test/setup-esignet.mjs has already done it, and the shared environment ships the matching private key.\n\nThe Bearer client {{clientId}} is registered by the OIDC Client Mgmt folder of \"certify- Mock IDA\". Both are needed: {{dpopClientId}} carries dpop_bound_access_tokens: true and gives the DPoP flow its bound token, {{clientId}} carries false and supplies the unbound_access_token fixture the scenarios test against. They cannot share a key - eSignet enforces one public key per client and rejects a repeat with duplicate_public_key.\n\nRequest 3 generates its own keypair and writes the private half into the environment, so what it registers is immediately usable by the rest of the collection and nothing has to be pasted in by hand. The key lives only in that environment: keep it, and do not click Reset All afterwards, which would restore the committed demo key over it.\n\nOn a LOCAL eSignet client-mgmt is unauthenticated: skip request 1 and run 2-3. On collab and released it is a Spring OAuth2 resource server, so run 1 first and set internalUrl and partnerSecret.",
+			"item": [
+				{
+					"name": "1. Authenticate (partner)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"eval(pm.environment.get('pmlib_code'));",
+									"",
+									"// The token comes back as a Set-Cookie, not in the body: the body carries only",
+									"// {status, message} and answers 200 whether or not a token was minted, so a",
+									"// green response here proves nothing. The cookie is the only evidence.",
+									"var token = null;",
+									"try { token = pm.cookies.get('Authorization') || null; } catch (e) { token = null; }",
+									"if (!token) {",
+									"    pm.response.headers.each(function (h) {",
+									"        if (!token && h.key.toLowerCase() === 'set-cookie' && h.value.indexOf('Authorization=') === 0) {",
+									"            token = h.value.split(';')[0].substring('Authorization='.length);",
+									"        }",
+									"    });",
+									"}",
+									"",
+									"var body = null;",
+									"try { body = pm.response.json(); } catch (e) { body = null; }",
+									"",
+									"pm.test('partner token issued', function () {",
+									"    pm.expect(JSON.stringify((body && body.errors) || []), 'authmanager rejected the credentials - partnerSecret is deployment-specific').to.equal('[]');",
+									"    pm.expect(token, 'no Authorization cookie in the response').to.be.a('string');",
+									"});",
+									"",
+									"if (token) {",
+									"    pm.environment.set('authToken', token);",
+									"",
+									"    // A token minted for the wrong appId authenticates perfectly and still",
+									"    // cannot register a client. Its scope is the only thing that says so, and",
+									"    // the failure it causes two requests later does not mention it.",
+									"    var claims = JSON.parse(pmlib.rs.b64utoutf8(token.split('.')[1]));",
+									"    pm.test('token carries add_oidc_client', function () {",
+									"        pm.expect(claims.scope || '', 'wrong appId - this token cannot register clients').to.include('add_oidc_client');",
+									"    });",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{internalUrl}}/v1/authmanager/authenticate/clientidsecretkey",
+							"host": [
+								"{{internalUrl}}/v1/authmanager/authenticate/clientidsecretkey"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							},
+							"raw": "{\n    \"id\": \"string\",\n    \"metadata\": {},\n    \"request\": {\n        \"appId\": \"partner\",\n        \"clientId\": \"mosip-pms-client\",\n        \"secretKey\": \"{{partnerSecret}}\"\n    },\n    \"requesttime\": \"{{$isoTimestamp}}\",\n    \"version\": \"string\"\n}"
+						},
+						"description": "Only needed on a hosted deployment. A local eSignet leaves client-mgmt unauthenticated, so requests 3 and 4 work on their own and this one has nothing to talk to - internalUrl ships empty.\n\npartnerSecret is deployment-specific and deliberately not committed: set it in your own environment. A collab secret used against released answers 401 Unauthorized, surfaced as {\"errorCode\":\"500\",\"message\":\"401 Unauthorized: [no body]\"}."
+					},
+					"response": []
+				},
+				{
+					"name": "2. Get CSRF token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"var body = pm.response.json();",
+									"// eSignet 1.8 (Spring Security 6, BREACH protection) returns the RAW token in",
+									"// the XSRF-TOKEN cookie and a MASKED one here. X-XSRF-TOKEN must carry this",
+									"// one; sending the cookie value gives 403 Forbidden with an empty path.",
+									"pm.environment.set('csrf_token', body.token);",
+									"",
+									"pm.test('csrf token issued', function () {",
+									"    pm.expect(body.token).to.be.a('string');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{authServerUrl}}/csrf/token",
+							"host": [
+								"{{authServerUrl}}/csrf/token"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "3. Create DPoP client",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Generates the keypair and writes the private half straight back into the",
+									"// environment, the same way the Bearer collection's Create OIDC client does.",
+									"// Nothing key-related is read from the environment first: this request produces",
+									"// the key material it registers, so it cannot be tripped by a variable whose",
+									"// CURRENT value is blank.",
+									"var pmlibCode = pm.environment.get('pmlib_code');",
+									"if (!pmlibCode) {",
+									"    throw new Error(",
+									"        'pmlib_code is empty - no environment is loaded, or its CURRENT column is ' +",
+									"        'blank. Select \"certify-mock env\" and click Reset All in the environment editor.');",
+									"}",
+									"eval(pmlibCode);",
+									"",
+									"// Kept so a failed registration can put it back. On duplicate_client_id or a",
+									"// 401 the client that is actually registered is still the old one, and leaving",
+									"// the environment holding a key eSignet never saw would strand it.",
+									"pm.collectionVariables.set('dpop_privateKey_jwk_prev', pm.environment.get('dpop_privateKey_jwk') || '');",
+									"",
+									"var kp = pmlib.rs.KEYUTIL.generateKeypair('RSA', 2048);",
+									"var priv = pmlib.rs.KEYUTIL.getJWK(kp.prvKeyObj);",
+									"var pub = pmlib.rs.KEYUTIL.getJWK(kp.pubKeyObj);",
+									"pub.alg = 'RS256';",
+									"pub.use = 'sig';",
+									"",
+									"// Written before the request goes out, so the environment holds the private",
+									"// half of exactly the key eSignet is about to register. Steps 2 and 6 of VCI (DPoP) sign their client",
+									"// assertion with it.",
+									"pm.environment.set('dpop_privateKey_jwk', JSON.stringify(priv));",
+									"pm.environment.set('dpop_publicKey_jwk', JSON.stringify(pub));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"var body = null;",
+									"try { body = pm.response.json(); } catch (e) { body = null; }",
+									"",
+									"var errors = (body && body.errors) || [];",
+									"var registered = pm.response.code === 200 && errors.length === 0 &&",
+									"                 body && body.response && body.response.status === 'ACTIVE';",
+									"",
+									"// The new key went into the environment before the request was sent. If eSignet",
+									"// did not take it, the registered client is still the old one - put its private",
+									"// half back rather than leaving the environment holding a key that exists nowhere.",
+									"if (!registered) {",
+									"    var prev = pm.collectionVariables.get('dpop_privateKey_jwk_prev');",
+									"    if (prev) pm.environment.set('dpop_privateKey_jwk', prev);",
+									"}",
+									"",
+									"// A 401 here has an EMPTY body - the reason is in WWW-Authenticate, which",
+									"// distinguishes 'Malformed token' from expired from insufficient_scope. None of",
+									"// the three appear in a body, so the header is quoted into the failure message.",
+									"pm.test('request was authorised', function () {",
+									"    pm.expect(pm.response.code, pm.response.headers.get('WWW-Authenticate') || 'no WWW-Authenticate header').to.equal(200);",
+									"});",
+									"",
+									"// MOSIP reports registration failures at HTTP 200 with an errors array, so the",
+									"// status code above is not enough on its own. 'Full authentication is required",
+									"// to access this resource' here means authToken never reached the server: it",
+									"// goes in the Authorization header, and a Cookie: Authorization=... is ignored.",
+									"pm.test('client registered', function () {",
+									"    pm.expect(body, 'no JSON body - read WWW-Authenticate').to.not.equal(null);",
+									"    pm.expect(JSON.stringify(errors), 'duplicate_client_id means that id already exists with a different key - it cannot be re-keyed, so use a new clientId').to.equal('[]');",
+									"    pm.expect(body.response.clientId).to.equal(pm.environment.get('dpopClientId'));",
+									"    pm.expect(body.response.status).to.equal('ACTIVE');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-XSRF-TOKEN",
+								"value": "{{csrf_token}}"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{authToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{authServerUrl}}/client-mgmt/client",
+							"host": [
+								"{{authServerUrl}}/client-mgmt/client"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							},
+							"raw": "{\n    \"requestTime\": \"{{$isoTimestamp}}\",\n    \"request\": {\n        \"clientId\": \"{{dpopClientId}}\",\n        \"clientName\": \"DPoP wallet demo\",\n        \"publicKey\": {{dpop_publicKey_jwk}},\n        \"relyingPartyId\": \"{{relayingPartyId}}\",\n        \"userClaims\": [\n            \"name\",\n            \"email\",\n            \"gender\",\n            \"phone_number\",\n            \"picture\",\n            \"birthdate\"\n        ],\n        \"authContextRefs\": [\n            \"mosip:idp:acr:generated-code\"\n        ],\n        \"logoUri\": \"https://avatars.githubusercontent.com/u/60199888\",\n        \"redirectUris\": [\n            \"{{redirectionUrl}}\",\n            \"io.mosip.residentapp.inji://oauthredirect\"\n        ],\n        \"grantTypes\": [\n            \"authorization_code\"\n        ],\n        \"clientAuthMethods\": [\n            \"private_key_jwt\"\n        ],\n        \"additionalConfig\": {\n            \"userinfo_response_type\": \"JWS\",\n            \"dpop_bound_access_tokens\": true,\n            \"require_pushed_authorization_requests\": false\n        }\n    }\n}"
+						},
+						"description": "Registers {{dpopClientId}} with dpop_bound_access_tokens: true - the one field this folder exists for. With it eSignet demands a DPoP proof at the token endpoint and stamps the proof key's thumbprint on the access token as cnf.jkt.\n\nThe pre-request script generates the private_key_jwt keypair and writes the private half to dpop_privateKey_jwk, so the environment is left holding the key of the client that was just registered and VCI (DPoP) works against it immediately. Do not click Reset All afterwards - that restores the committed demo key, which the client you just created will not accept.\n\nPosted to client-mgmt/client, NOT client-mgmt/oidc-client. The v1 oidc-client endpoint silently drops additionalConfig, so a client created through it is never DPoP-bound and every scenario in this collection fails with 'access token is not DPoP-bound'.\n\nNote the server profile also has to carry the DPOP feature; per-client dpop_bound_access_tokens only decides binding for a profile that supports it."
+					},
+					"response": []
+				}
+			]
+		},
+		{
 			"name": "VCI (DPoP)",
 			"description": "The VCI flow from inji-certify-with-mock-identity, run against the local eSignet 1.8.0 in local-dev/docker-compose.dev.yaml, with DPoP added. Run the requests in order.\n\nStep 6 is where the binding is created: the client sends a DPoP proof to the token endpoint, eSignet verifies it and stamps that key's thumbprint on the access token as cnf.jkt, returning token_type DPoP. Nothing about the binding is simulated.\n\nStep 8 then presents that token as 'Authorization: DPoP' with a fresh proof over the credential endpoint, which is what certify's DPoPProofValidator checks.",
 			"item": [
