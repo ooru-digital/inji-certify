@@ -12,6 +12,7 @@ import io.mosip.certify.core.dto.VCError;
 import io.mosip.certify.core.dto.OAuthTokenError;
 import io.mosip.certify.core.exception.*;
 import io.mosip.certify.core.util.CommonUtil;
+import io.mosip.certify.dpop.DpopProofValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +60,19 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
 
     @Autowired
     MessageSource messageSource;
+
+    /**
+     * Source of the {@code algs} parameter advertised in a DPoP challenge (RFC 9449
+     * §5.1), so a client that guessed wrong is told what this issuer will accept.
+     *
+     * <p>The validator is asked for the list rather than the property being bound here a
+     * second time: two bindings of one key can be edited apart, and a challenge that
+     * advertises algorithms the validator does not accept sends a wallet developer
+     * chasing a fault that is not theirs. Optional so an advice built outside a Spring
+     * context still answers, just without the {@code algs} hint.
+     */
+    @Autowired(required = false)
+    private DpopProofValidator dpopProofValidator;
 
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex, HttpHeaders headers,
@@ -194,12 +208,38 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             return new ResponseEntity<>(getVCErrorDto(message, message), HttpStatus.BAD_REQUEST);
         }
         if(ex instanceof NotAuthenticatedException) {
-            String errorCode = ((CertifyException) ex).getErrorCode();
             Object reason = request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE);
+            // The filter cannot propagate its own exception - it records the failure and
+            // lets the chain run on - so both the code and the description are read back
+            // from the request. Without the code, every DPoP failure would surface as the
+            // generic invalid_token carried by NotAuthenticatedException.
+            Object code = request.getAttribute(Constants.AUTH_ERROR_CODE_ATTRIBUTE);
+            String errorCode = (code instanceof String) ? (String) code : ((CertifyException) ex).getErrorCode();
             String description = (reason instanceof String) ? (String) reason : getMessage(errorCode, errorCode);
             HttpHeaders headers = new HttpHeaders();
-            // Server currently supports only Bearer; make this scheme-aware when DPoP is supported.
-            headers.set(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"");
+            // RFC 9449 §7.1: challenge in the scheme the caller used, so a DPoP client is
+            // not told to retry with Bearer - which it must not do for a bound token. The
+            // algs parameter advertises what the proof may be signed with, as eSignet does.
+            Object schemeAttribute = request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE);
+            String scheme = (schemeAttribute instanceof String) ? (String) schemeAttribute : Constants.SCHEME_BEARER;
+            // description can carry proof-supplied text - DpopProofValidator names the
+            // rejected alg, for instance - so it is escaped before going into the header.
+            // Unescaped, a proof with alg = x", scope="openid would inject an auth-param.
+            StringBuilder challenge = new StringBuilder(scheme)
+                    .append(" error=\"").append(quoteAuthParam(errorCode)).append('"')
+                    .append(", error_description=\"").append(quoteAuthParam(description)).append('"');
+            // algs comes from configuration rather than the request, so it is not
+            // attacker-controlled - but it is still a dynamic value, and escaping it
+            // keeps every quoted auth-param in this header safe by the same rule.
+            List<String> algs = dpopProofValidator == null
+                    ? List.of()
+                    : dpopProofValidator.getAllowedAlgorithms();
+            if(INVALID_DPOP_PROOF.equals(errorCode) && !algs.isEmpty()) {
+                challenge.append(", algs=\"")
+                        .append(quoteAuthParam(String.join(" ", algs)))
+                        .append('"');
+            }
+            headers.set(HttpHeaders.WWW_AUTHENTICATE, challenge.toString());
             return new ResponseEntity<>(getVCErrorDto(errorCode, description), headers, HttpStatus.UNAUTHORIZED);
         }
         if(ex instanceof InvalidRequestException) {
@@ -352,5 +392,29 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
             default:
                 return HttpStatus.BAD_REQUEST;
         }
+    }
+
+    /**
+     * Escapes a value for an RFC 9110 quoted-string auth-param.
+     *
+     * <p>Backslash and double quote are backslash-escaped so they cannot close the
+     * quoted-string and start another parameter; control characters, which would let a
+     * value break the header itself, are replaced with a space.
+     */
+    private static String quoteAuthParam(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(value.length());
+        for (char c : value.toCharArray()) {
+            if (c < 0x20 || c == 0x7f) {
+                out.append(' ');
+            } else if (c == '"' || c == '\\') {
+                out.append('\\').append(c);
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 }

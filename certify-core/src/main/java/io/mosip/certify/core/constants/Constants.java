@@ -58,4 +58,18 @@ public class Constants {
     public static final String AS_METADATA_PREFIX = "as_metadata:";
     // Request attribute used by the access token filter to pass the auth-failure reason to the exception handler.
     public static final String AUTH_ERROR_ATTRIBUTE = "certify.authError";
+    // Authorization scheme the caller actually used ("Bearer" or "DPoP"), recorded by
+    // AccessTokenValidationFilter so the error response can answer in the same scheme.
+    public static final String AUTH_SCHEME_ATTRIBUTE = "certify.authScheme";
+    // Request attribute carrying the error code behind an auth failure, so the
+    // handler advice can answer with it instead of a generic invalid_token.
+    public static final String AUTH_ERROR_CODE_ATTRIBUTE = "certify.authErrorCode";
+    // Header carrying the DPoP proof JWT (RFC 9449 section 4.1).
+    public static final String DPOP = "DPoP";
+    // Authorization schemes a token may be presented with, and the value recorded in
+    // AUTH_SCHEME_ATTRIBUTE. RFC 9449 spells the DPoP scheme and the DPoP header
+    // identically, so SCHEME_DPOP is derived from DPOP rather than repeating the
+    // literal - they remain separate concepts and read as such at the call site.
+    public static final String SCHEME_BEARER = "Bearer";
+    public static final String SCHEME_DPOP = DPOP;
 }
