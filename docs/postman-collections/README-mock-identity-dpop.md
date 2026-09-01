@@ -20,7 +20,7 @@ Clients first, if they are not registered yet: `certify- Mock IDA - DPoP` → **
 
 ## Switching deployments
 
-The environment ships pointing at a **local** deployment. To run against one of MOSIP's hosted deployments, change these variables — nothing else:
+The environment ships pointing at a **local** deployment. To run the VCI flow against one of MOSIP's hosted deployments, change these variables and no others — in particular leave `certifyUrl` and `audUrl` alone, for the reason below:
 
 | Variable | Local (as shipped) | MOSIP released | MOSIP collab |
 |---|---|---|---|
@@ -30,7 +30,7 @@ The environment ships pointing at a **local** deployment. To run against one of 
 | `internalUrl` | *(unused)* | `https://api-internal.released.mosip.net` | `https://api-internal.collab.mosip.net` |
 | `relayingPartyId` | `mock-relying-party-id` | `mock-relying-party-id` | `mpartner-default-esignet` |
 
-`internalUrl` is only needed to register clients — see *Registering clients on a hosted deployment* below. The published environment ships it empty.
+`internalUrl` and `partnerSecret` are needed only to register clients, not to run the flow — see *Registering clients on a hosted deployment* below. The published environment ships `internalUrl` empty, and `partnerSecret` empty because it is deployment-specific and must not be committed.
 
 ### `certifyUrl` and `audUrl` do not change
 
