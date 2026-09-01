@@ -184,7 +184,9 @@ public class DpopProofValidator {
         if (dpopToken == null || dpopToken.isBlank()) {
             throw new InvalidDpopHeaderException("DPoP header is missing");
         }
-        // A repeated DPoP header arrives comma-joined; RFC 9449 §4.3 requires exactly one proof.
+        // Two proofs folded into one header value by an intermediary. A repeated DPoP
+        // header *field* is counted in AccessTokenValidationFilter, which can see the
+        // values separately; RFC 9449 §4.3 requires exactly one proof either way.
         if (dpopToken.indexOf(',') >= 0) {
             throw new InvalidDpopHeaderException("Exactly one DPoP proof is allowed");
         }
@@ -441,6 +443,10 @@ public class DpopProofValidator {
             port = -1;
         }
         String path = uri.getRawPath() == null ? "" : uri.getRawPath();
+        // Trailing slash dropped so a wallet that appends one to the advertised endpoint
+        // still verifies. It cannot collapse two protected targets into one: the filter
+        // matches mosip.certify.authn.filter-urls exactly, so only one of the two forms
+        // is ever a DPoP-checked path.
         if (path.length() > 1 && path.endsWith("/")) {
             path = path.substring(0, path.length() - 1);
         }

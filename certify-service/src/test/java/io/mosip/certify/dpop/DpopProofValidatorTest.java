@@ -67,7 +67,7 @@ class DpopProofValidatorTest {
     // ---------- happy path ----------
 
     @Test
-    void should_acceptAValidProof() throws Exception {
+    void should_accept_when_proofIsValid() throws Exception {
         String proof = signProof(walletKey, defaultClaims().build(), walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
         // Returning normally is the whole assertion: the binding is checked against
@@ -89,6 +89,21 @@ class DpopProofValidatorTest {
     void should_normalizeAwayPort_when_itIsTheSchemeDefault() throws Exception {
         JWTClaimsSet claims = defaultClaims()
                 .claim("htu", "https://certify.example.com:443" + REQUEST_URI).build();
+        String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
+
+        assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
+    }
+
+    @Test
+    void should_acceptHtu_when_itCarriesATrailingSlash() throws Exception {
+        // Deliberate, and a false-negative reduction of the kind RFC 9449 §4.3 asks for:
+        // a wallet that builds htu from a credential_endpoint ending in '/' still
+        // verifies. It cannot let a proof cross between two protected targets, because
+        // AccessTokenValidationFilter matches mosip.certify.authn.filter-urls exactly -
+        // the slashed form is not a filtered path, so no proof is validated against it
+        // and the request 404s at routing.
+        JWTClaimsSet claims = defaultClaims()
+                .claim("htu", DOMAIN_URL + REQUEST_URI + "/").build();
         String proof = signProof(walletKey, claims, walletKey.toPublicJWK(), "dpop+jwt", JWSAlgorithm.ES256);
 
         assertDoesNotThrow(() -> validator.validate(proof, ACCESS_TOKEN, boundClaims(walletJkt), request));
@@ -449,7 +464,7 @@ class DpopProofValidatorTest {
     // ---------- key types ----------
 
     @Test
-    void should_acceptAnEd25519Proof() throws Exception {
+    void should_accept_when_proofUsesEd25519() throws Exception {
         // RFC 9449 section 4.2 asks only for an asymmetric signature algorithm, and EdDSA
         // is one. Before OKP was handled the proof failed as "must be an asymmetric key",
         // which is the opposite of what an Ed25519 key is.
@@ -467,7 +482,7 @@ class DpopProofValidatorTest {
     }
 
     @Test
-    void should_rejectAnOkpKeyOnACurveThatCannotSign() throws Exception {
+    void should_reject_when_okpCurveCannotSign() throws Exception {
         // X25519 is for key agreement. It is asymmetric, so the generic message would be
         // wrong; the curve is named instead.
         OctetKeyPair xKey = new OctetKeyPairGenerator(Curve.X25519).keyID("x").generate();

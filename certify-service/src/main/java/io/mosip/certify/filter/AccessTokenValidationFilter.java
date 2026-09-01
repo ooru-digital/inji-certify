@@ -8,6 +8,7 @@ package io.mosip.certify.filter;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,7 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
     static final String INVALID_TOKEN_TYPE = "Authorization header with a Bearer or DPoP token is required.";
     static final String ERROR_MISSING_DPOP_PROOF = "A DPoP header is required when using the DPoP authorization scheme.";
     static final String ERROR_TOKEN_REQUIRES_DPOP = "This access token is DPoP-bound and cannot be presented as a Bearer token.";
+    static final String ERROR_MULTIPLE_DPOP_PROOFS = "Exactly one DPoP header is allowed.";
 
     private static final String BEARER_PREFIX = Constants.SCHEME_BEARER + " ";
     private static final String DPOP_PREFIX = Constants.SCHEME_DPOP + " ";
@@ -167,17 +169,38 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /**
+     * Resolves the authorization scheme to its canonical spelling.
+     *
+     * <p>The comparison ignores case: RFC 9110 §11.1 defines auth-scheme as a case-
+     * insensitive token, and RFC 9449 §7.1 says the same of {@code DPoP}. A client
+     * sending {@code bearer} or {@code dpop} is conformant, and matching exactly would
+     * answer it 401 with "Authorization header with a Bearer or DPoP token is required",
+     * which points at the wrong thing entirely.
+     *
+     * <p>The canonical constant is returned rather than what arrived, so the length used
+     * to strip the prefix in {@code doFilterInternal} stays correct - the scheme name and
+     * its constant are the same length whatever the casing - and the challenge is issued
+     * in the spelling the RFCs use.
+     *
+     * @return {@link Constants#SCHEME_BEARER}, {@link Constants#SCHEME_DPOP}, or
+     *         {@code null} when the header is absent or carries neither scheme
+     */
     private String resolveScheme(String authorizationHeader) {
         if (authorizationHeader == null) {
             return null;
         }
-        if (authorizationHeader.startsWith(BEARER_PREFIX)) {
+        if (startsWithIgnoreCase(authorizationHeader, BEARER_PREFIX)) {
             return Constants.SCHEME_BEARER;
         }
-        if (authorizationHeader.startsWith(DPOP_PREFIX)) {
+        if (startsWithIgnoreCase(authorizationHeader, DPOP_PREFIX)) {
             return Constants.SCHEME_DPOP;
         }
         return null;
+    }
+
+    private boolean startsWithIgnoreCase(String value, String prefix) {
+        return value.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
     /**
@@ -192,9 +215,19 @@ public class AccessTokenValidationFilter extends OncePerRequestFilter {
      */
     private void enforceSchemeBinding(String scheme, String token, Jwt jwt, HttpServletRequest request) {
         if (Constants.SCHEME_DPOP.equals(scheme)) {
-            String dpopToken = request.getHeader(Constants.DPOP);
+            // Read through getHeaders, not getHeader: the latter answers with the first
+            // value alone, so a request carrying two DPoP header fields would be validated
+            // against the first and the second never looked at. RFC 9449 §4.3 requires the
+            // resource server to reject that, and counting is only possible here - the
+            // validator is handed one string and cannot tell how many arrived.
+            Enumeration<String> dpopHeaders = request.getHeaders(Constants.DPOP);
+            String dpopToken = (dpopHeaders != null && dpopHeaders.hasMoreElements())
+                    ? dpopHeaders.nextElement() : null;
             if (dpopToken == null || dpopToken.isBlank()) {
                 throw new InvalidDpopHeaderException(ERROR_MISSING_DPOP_PROOF);
+            }
+            if (dpopHeaders.hasMoreElements()) {
+                throw new InvalidDpopHeaderException(ERROR_MULTIPLE_DPOP_PROOFS);
             }
             // Everything the proof has to satisfy - structure, signature, request and token
             // binding, freshness, single use - is decided in there.

@@ -177,6 +177,49 @@ class AccessTokenValidationFilterTest {
         verify(filterChain).doFilter(request, response);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"bearer", "BEARER", "BeArEr"})
+    public void should_activateToken_when_bearerSchemeIsSpeltInAnyCase(String scheme)
+            throws ServletException, IOException {
+        // RFC 9110 §11.1: auth-scheme is a case-insensitive token. Matching it exactly
+        // would reject a conformant client with "Authorization header with a Bearer or
+        // DPoP token is required", which names the wrong problem.
+        request.addHeader("Authorization", scheme + " " + TOKEN);
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(createValidClaims());
+        when(jwtDecoder.decode(TOKEN)).thenReturn(jwt);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(parsedAccessToken).setActive(true);
+        verify(filterChain).doFilter(request, response);
+        // The canonical spelling is recorded whatever arrived, so the challenge and the
+        // scheme-binding check below both see one value.
+        assertEquals(Constants.SCHEME_BEARER, request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dpop", "DPOP", "dPoP"})
+    public void should_requireAProof_when_dpopSchemeIsSpeltInAnyCase(String scheme)
+            throws ServletException, IOException {
+        // The same rule per RFC 9449 §7.1. Reaching the missing-proof error proves the
+        // request was routed down the DPoP path rather than falling through as unknown.
+        request.addHeader("Authorization", scheme + " " + TOKEN);
+        request.setRequestURI("/api/v1/secured");
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(createValidClaims());
+        when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(parsedAccessToken).setActive(false);
+        assertEquals(AccessTokenValidationFilter.ERROR_MISSING_DPOP_PROOF,
+                request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
+        assertEquals(Constants.SCHEME_DPOP, request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE));
+    }
+
     @Test
     public void should_reject_when_dpopSchemeHasNoProofHeader() throws ServletException, IOException {
         request.addHeader("Authorization", "DPoP " + TOKEN);
@@ -190,6 +233,31 @@ class AccessTokenValidationFilterTest {
 
         verify(parsedAccessToken).setActive(false);
         assertEquals(AccessTokenValidationFilter.ERROR_MISSING_DPOP_PROOF,
+                request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
+        assertEquals("DPoP", request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE));
+    }
+
+    @Test
+    public void should_reject_when_requestCarriesTwoDpopHeaders() throws ServletException, IOException {
+        // RFC 9449 §4.3 allows at most one DPoP header field. getHeader answers with the
+        // first value only, so without an explicit count a valid first proof would carry
+        // the request and the second header would never be examined.
+        request.addHeader("Authorization", "DPoP " + TOKEN);
+        request.addHeader("DPoP", "first.proof.jwt");
+        request.addHeader("DPoP", "second.proof.jwt");
+        request.setRequestURI("/api/v1/secured");
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getClaims()).thenReturn(createValidClaims());
+        when(jwtDecoder.decode(anyString())).thenReturn(jwt);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(parsedAccessToken).setActive(false);
+        // Rejected before any proof is examined, so neither one is spent against the
+        // replay cache.
+        verifyNoInteractions(dpopProofValidator);
+        assertEquals(AccessTokenValidationFilter.ERROR_MULTIPLE_DPOP_PROOFS,
                 request.getAttribute(Constants.AUTH_ERROR_ATTRIBUTE));
         assertEquals("DPoP", request.getAttribute(Constants.AUTH_SCHEME_ATTRIBUTE));
     }
