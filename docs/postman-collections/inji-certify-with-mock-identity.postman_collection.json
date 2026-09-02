@@ -3,7 +3,8 @@
 		"_postman_id": "3494bbcf-2868-42c5-8f74-236e952f8e1e",
 		"name": "certify- Mock IDA",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		"_exporter_id": "41350892"
+		"_exporter_id": "41350892",
+		"description": "Bearer credential issuance against the mock identity system.\n\nEnvironment ships pointing at a LOCAL deployment. To run the VCI flow against MOSIP's released/collab deployment change these four variables only: authServerUrl, aud, mockIdentitySystemUrl, relayingPartyId. Leave certifyUrl and audUrl as they are - both describe certify itself, which stays local whichever eSignet you point at, and dragging audUrl along with authServerUrl fails every credential request with 400 invalid_proof. Registering your own clients on a hosted deployment additionally needs internalUrl and partnerSecret. See docs/postman-collections/README-mock-identity-dpop.md.\n\nUses the shared environment \"certify-mock env\". Run the VCI folder top to bottom; Authorize / OAuthdetails request V2 must run before Send OTP. Its Get Tokens V2 also publishes unbound_access_token, which the DPoP scenarios in \"certify- Mock IDA - DPoP\" consume.\n\nDEMO KEYS: the RSA private keys in the shared environment are committed to a public repository and must be treated as compromised. They are for the local mock-identity demo only - never register them with an authorization server issuing tokens for anything real."
 	},
 	"item": [
 		{
@@ -46,8 +47,10 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
+									"// eSignet 1.8 (Spring Security 6, BREACH protection) puts the RAW token in the",
+									"// XSRF-TOKEN cookie and the MASKED token in the response body. X-XSRF-TOKEN must",
+									"// carry the body value; sending the cookie value gives 403 Forbidden.",
+									"pm.environment.set(\"csrf_token\", pm.response.json().token);"
 								],
 								"type": "text/javascript"
 							}
@@ -88,7 +91,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"kp = pmlib.rs.KEYUTIL.generateKeypair(\"RSA\", 2048);",
 									"privateKey_jwk = pmlib.rs.KEYUTIL.getJWK(kp.prvKeyObj);",
 									"publicKey_jwk = pmlib.rs.KEYUTIL.getJWK(kp.pubKeyObj);",
@@ -123,7 +126,7 @@
 							"bearer": [
 								{
 									"key": "token",
-									"value": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI1SmZabW90aFRxanFGV0EzSFM1WEk1Q1MxRHQxYTBRUnVFWE1KZW5xTXFVIn0.eyJleHAiOjE3MjMxMzQ0NzcsImlhdCI6MTcyMzA5ODQ3NywianRpIjoiOGNiYzY3ZTAtMzg4Zi00ZDQ5LThkNGQtZWYxNTEyYWY5YjQzIiwiaXNzIjoiaHR0cHM6Ly9pYW0ucWEtaW5qaS5tb3NpcC5uZXQvYXV0aC9yZWFsbXMvbW9zaXAiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiNTNkMDJiMmEtYmM2Yy00Y2IyLWIxYWEtNmNhZjA5ZTBjZmVjIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibW9zaXAtcG1zLWNsaWVudCIsImFjciI6IjEiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsiUEFSVE5FUiIsIlBVQkxJU0hfTUlTUF9MSUNFTlNFX1VQREFURURfR0VORVJBTCIsIlBVQkxJU0hfUEFSVE5FUl9VUERBVEVEX0dFTkVSQUwiLCJERVZJQ0VfUFJPVklERVIiLCJQVUJMSVNIX01JU1BfTElDRU5TRV9HRU5FUkFURURfR0VORVJBTCIsImRlZmF1bHQtcm9sZXMtbW9zaXAiLCJQVUJMSVNIX0FQSUtFWV9BUFBST1ZFRF9HRU5FUkFMIiwiUkVHSVNUUkFUSU9OX1BST0NFU1NPUiIsIlBVQkxJU0hfT0lEQ19DTElFTlRfVVBEQVRFRF9HRU5FUkFMIiwiUFVCTElTSF9BUElLRVlfVVBEQVRFRF9HRU5FUkFMIiwiWk9OQUxfQURNSU4iLCJQTVNfQURNSU4iLCJQVUJMSVNIX0NBX0NFUlRJRklDQVRFX1VQTE9BREVEX0dFTkVSQUwiLCJQVUJMSVNIX1BPTElDWV9VUERBVEVEX0dFTkVSQUwiLCJQTVNfVVNFUiIsIkNSRUFURV9TSEFSRSIsIm9mZmxpbmVfYWNjZXNzIiwiUEFSVE5FUl9BRE1JTiIsIlBVQkxJU0hfT0lEQ19DTElFTlRfQ1JFQVRFRF9HRU5FUkFMIiwidW1hX2F1dGhvcml6YXRpb24iLCJTVUJTQ1JJQkVfQ0FfQ0VSVElGSUNBVEVfVVBMT0FERURfR0VORVJBTCJdfSwicmVzb3VyY2VfYWNjZXNzIjp7Im1vc2lwLXBtcy1jbGllbnQiOnsicm9sZXMiOlsidW1hX3Byb3RlY3Rpb24iXX0sImFjY291bnQiOnsicm9sZXMiOlsibWFuYWdlLWFjY291bnQiLCJtYW5hZ2UtYWNjb3VudC1saW5rcyIsInZpZXctcHJvZmlsZSJdfX0sInNjb3BlIjoiZW1haWwgcHJvZmlsZSB1cGRhdGVfb2lkY19jbGllbnQgYWRkX29pZGNfY2xpZW50IHVwbG9hZF9jZXJ0aWZpY2F0ZSBnZXRfY2VydGlmaWNhdGUiLCJjbGllbnRIb3N0IjoiMTAuNDIuMS4xMjAiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImNsaWVudElkIjoibW9zaXAtcG1zLWNsaWVudCIsInByZWZlcnJlZF91c2VybmFtZSI6InNlcnZpY2UtYWNjb3VudC1tb3NpcC1wbXMtY2xpZW50IiwiY2xpZW50QWRkcmVzcyI6IjEwLjQyLjEuMTIwIn0.KMLWpFpZhGvKVupRkg52gTiwMGv6M2sBIciOebE_oCoNC9XG9fwNG89cuN1EI9GdZaDaRDxX6suHm1eWsbrFz6U9f73IalH_WcotuAuS-7qkP_9lHt5q4B0fhUQzmkcVHH6ivxnFVUEmF9i2gHq0IqBbOQatspZ-yZNQFMznAgQEF6WwkYLFfuu7hwLwTuOm1m8f-D3NATZxAsqhb__YgywVDKuti46IV7Nr47qsM2YGL46Q-KPLaDy4GgptXg4eiOGaGWpGuAROEt2nile9kKadrX3JGENWQ_mgfpc26qtnfsng4DwR0e6ssFxffdp_jsyjLenPvT9K4xONugu78w",
+									"value": "{{authToken}}",
 									"type": "string"
 								}
 							]
@@ -154,7 +157,8 @@
 								"client-mgmt",
 								"oidc-client"
 							]
-						}
+						},
+						"description": "The partner token comes from the runtime authToken variable, published by \"1. Authenticate (partner)\" in the OIDC Client Mgmt (DPoP) folder of \"certify- Mock IDA - DPoP\" - both collections share one environment. Run that request first on collab and released; a local eSignet leaves client-mgmt unauthenticated and ignores this header."
 					},
 					"response": []
 				},
@@ -334,8 +338,10 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
+									"// eSignet 1.8 (Spring Security 6, BREACH protection) puts the RAW token in the",
+									"// XSRF-TOKEN cookie and the MASKED token in the response body. X-XSRF-TOKEN must",
+									"// carry the body value; sending the cookie value gives 403 Forbidden.",
+									"pm.environment.set(\"csrf_token\", pm.response.json().token);"
 								],
 								"type": "text/javascript"
 							}
@@ -378,9 +384,6 @@
 								"exec": [
 									"var btoa = require('btoa');",
 									"",
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);",
-									"",
 									"pm.test(\"Validate transactionId\", function () {",
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.response.transactionId).not.equals(null);",
@@ -412,7 +415,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"",
 									"const pkce = pmlib.pkceChallenge();",
 									"pm.collectionVariables.set(\"codeChallenge\",pkce.code_challenge);",
@@ -500,27 +503,6 @@
 				},
 				{
 					"name": "Authenticate User",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);"
-								],
-								"type": "text/javascript"
-							}
-						},
-						{
-							"listen": "prerequest",
-							"script": {
-								"exec": [
-									""
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
 					"request": {
 						"method": "POST",
 						"header": [
@@ -561,7 +543,18 @@
 							]
 						}
 					},
-					"response": []
+					"response": [],
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
 				},
 				{
 					"name": "Authorization Code",
@@ -570,9 +563,6 @@
 							"listen": "test",
 							"script": {
 								"exec": [
-									"var token = pm.cookies.get(\"XSRF-TOKEN\")",
-									"pm.environment.set(\"csrf_token\", token);",
-									"",
 									"pm.test(\"Validate code\", function () {",
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.response.code).not.equals(null);",
@@ -634,21 +624,19 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"",
 									"// Set headers for JWT",
 									"var header = {\t",
 									"\t\"alg\": \"RS256\"",
 									"};",
 									"",
-									"",
 									"//sign token",
 									"//Note: Key pair is generated in \"Create OIDC client\" pre-requests script",
 									"//generated private and public keys are stored in the postman environment ",
 									"const signed_jwt = pmlib.clientAssertPrivateKey(JSON.parse(pm.environment.get(\"privateKey_jwk\")), pm.environment.get('clientId'), pm.environment.get('aud'), exp = 60,  \"RS256\");",
 									"",
-									"pm.collectionVariables.set(\"client_assertion\",signed_jwt);",
-									""
+									"pm.collectionVariables.set(\"client_assertion\",signed_jwt);"
 								],
 								"type": "text/javascript"
 							}
@@ -666,6 +654,9 @@
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData.access_token).not.equals(null);",
 									"    pm.environment.set(\"access_token\", jsonData.access_token);",
+									"    // This client is not DPoP-registered, so its token carries no cnf.jkt.",
+									"    // The DPoP scenarios use it as the \"unbound token\" fixture.",
+									"    pm.environment.set(\"unbound_access_token\", jsonData.access_token);",
 									"",
 									"});"
 								],
@@ -766,7 +757,7 @@
 							"listen": "prerequest",
 							"script": {
 								"exec": [
-									"eval(pm.globals.get('pmlib_code'))",
+									"eval(pm.environment.get('pmlib_code') || pm.globals.get('pmlib_code'))",
 									"keyPair = pmlib.rs.KEYUTIL.generateKeypair(\"RSA\", 2048);",
 									"jwkPrivateKey = pmlib.rs.KEYUTIL.getJWK(keyPair.prvKeyObj);",
 									"jwkPublicKey  = pmlib.rs.KEYUTIL.getJWK(keyPair.pubKeyObj);",
@@ -1488,9 +1479,7 @@
 			"listen": "prerequest",
 			"script": {
 				"type": "text/javascript",
-				"exec": [
-					""
-				]
+				"exec": []
 			}
 		},
 		{
