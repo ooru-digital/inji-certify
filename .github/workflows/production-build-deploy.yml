@@ -1,0 +1,205 @@
+name: Production Build and Deploy
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Enter branch name to build and deploy"
+        required: true
+        default: "main"
+        type: string
+
+jobs:
+  # ---------------------------------------------------------
+  # UNIT TESTS
+  # ---------------------------------------------------------
+  trigger-unit-tests:
+    name: Production Unit Tests
+    uses: ./.github/workflows/unit-test.yml
+    secrets:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
+
+  # ---------------------------------------------------------
+  # BUILD + SECURITY SCANS + DOCKER PUSH
+  # ---------------------------------------------------------
+  container_pipeline:
+    name: Production Container Pipeline
+    needs:
+      - trigger-unit-tests
+
+    if: ${{ needs.trigger-unit-tests.result == 'success' }}
+
+    uses: ./.github/workflows/container-pipeline.yml
+
+    with:
+      registry: docker.io
+      image_repository: ${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}
+      image_tag_prefix: prod
+      docker_context: .
+      dockerfile: Dockerfile
+      fail_on_gitleaks: true
+      max_image_layers: 35
+      max_image_size_mb: 3500
+      push_image: true
+
+    secrets:
+      registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
+      DISCORD_STAGING_BUILDS_URL: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
+
+  # ---------------------------------------------------------
+  # DEPLOY TO PRODUCTION EKS
+  # ---------------------------------------------------------
+  deploy:
+    name: Production Deploy To EKS
+
+    needs:
+      - trigger-unit-tests
+      - container_pipeline
+
+    if: >-
+      ${{
+        needs.trigger-unit-tests.result == 'success' &&
+        needs.container_pipeline.result == 'success'
+      }}
+
+    uses: ./.github/workflows/deploy-eks.yml
+
+    with:
+      aws_region: ${{ vars.AWS_REGION }}
+      aws_role_to_assume: ${{ vars.STAGING_GITHUB_ACTIONS_AWS_ROLE_ARN }}
+      eks_cluster_name: ${{ vars.STAGING_EKS_CLUSTER_NAME }}
+      kubernetes_namespace: ${{ vars.STAGING_KUBERNETES_NAMESPACE }}
+      docker_image: docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
+      helm_release_name: inji-certify-4152-repo
+      helm_chart_path: deployment-configs/helm/new-inji-certify
+      unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
+      trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
+      deployment_configs_ref: main
+
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+      deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
+      discord_webhook: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
+
+  # ---------------------------------------------------------
+  # FINAL PIPELINE NOTIFICATION
+  # ---------------------------------------------------------
+  notify:
+    name: Pipeline Result Notification
+
+    needs:
+      - trigger-unit-tests
+      - container_pipeline
+      - deploy
+
+    if: ${{ always() }}
+
+    runs-on: [self-hosted, linux, x64, aws]
+
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+
+    steps:
+      - name: Download Unit Test Report from Nexus
+        if: env.DISCORD_WEBHOOK != ''
+        continue-on-error: true
+        run: |
+          mkdir -p reports/unit-test
+          curl -sS -f \
+            -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            -o reports/unit-test/unit-test-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/unit-test-report.txt" \
+            || true
+
+      - name: Download Trivy Report from Nexus
+        if: env.DISCORD_WEBHOOK != ''
+        continue-on-error: true
+        run: |
+          mkdir -p reports/trivy
+          curl -sS -f \
+            -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            -o reports/trivy/trivy-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/trivy-report.txt" \
+            || true
+
+      - name: Determine outcome and send single Discord alert
+        if: env.DISCORD_WEBHOOK != ''
+        run: |
+          FAILED_STAGE=""
+          REASON=""
+
+          UNIT_TEST_RESULT="${{ needs.trigger-unit-tests.result }}"
+          CONTAINER_RESULT="${{ needs.container_pipeline.result }}"
+          DEPLOY_RESULT="${{ needs.deploy.result }}"
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$UNIT_TEST_RESULT" = "failure" ]; then
+            FAILED_STAGE="Unit Tests"
+            REASON="Unit test pass percentage was below the required threshold."
+          elif [ "$CONTAINER_RESULT" = "failure" ]; then
+            FAILED_STAGE="Container Pipeline"
+            REASON="Build, Gitleaks, Trivy, or Docker push failed."
+          elif [ "$DEPLOY_RESULT" = "failure" ]; then
+            FAILED_STAGE="Deploy To EKS"
+            REASON="Deployment failed, or rollout did not become healthy within the timeout."
+          fi
+
+          if [ -n "$FAILED_STAGE" ]; then
+            CONTENT=$(cat <<EOF
+          ❌ **Production Build & Deploy Failed**
+
+          **Repository** : ${{ github.repository }}
+          **Branch** : ${{ inputs.branch }}
+          **Failed Stage** : ${FAILED_STAGE}
+          **Reason** : ${REASON}
+
+          **Pipeline Status**
+          Unit Tests       : ${UNIT_TEST_RESULT}
+          Container Build  : ${CONTAINER_RESULT}
+          Deploy To EKS    : ${DEPLOY_RESULT}
+
+          **Triggered By** : ${{ github.actor }}
+          🔗 ${RUN_URL}
+          EOF
+            )
+          else
+            CONTENT=$(cat <<EOF
+          ✅ **Production Build & Deploy Successful**
+
+          **Repository** : ${{ github.repository }}
+          **Branch** : ${{ inputs.branch }}
+
+          **Pipeline Status**
+          Unit Tests       : ${UNIT_TEST_RESULT}
+          Container Build  : ${CONTAINER_RESULT}
+          Deploy To EKS    : ${DEPLOY_RESULT}
+
+          **Docker Image** : docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
+          **Triggered By** : ${{ github.actor }}
+          🔗 ${RUN_URL}
+          EOF
+            )
+          fi
+
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+
+          curl -sS \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK"
