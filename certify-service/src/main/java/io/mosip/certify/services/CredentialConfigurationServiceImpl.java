@@ -18,6 +18,7 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.CredentialConfigMapper;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import io.mosip.certify.validators.credentialconfigvalidators.LdpVcCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.MsoMdocCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.SdJwtCredentialConfigValidator;
@@ -84,6 +85,13 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
 
     @Value("#{${mosip.certify.credential-config.as-mapping:{}}}")
     private Map<String, String> authorizationServerMapping;
+
+    /**
+     * Comma-separated formats advertised on the openid-credential-issuer well-known endpoint.
+     * Default {@code ldp_vc} = only W3C VCs. Empty = advertise all active credential configs.
+     */
+    @Value("${mosip.certify.credential-config.wellknown.supported-formats:ldp_vc}")
+    private String wellKnownSupportedFormats;
 
     private static final String CREDENTIAL_CONFIG_CACHE_NAME = "credentialConfig";
 
@@ -401,8 +409,8 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     @Override
     public CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String issuerId, String version) {
         Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(issuerId));
-        List<CredentialConfig> credentialConfigList = credentialConfigRepository
-                .findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE);
+        List<CredentialConfig> credentialConfigList = filterForWellKnown(
+                credentialConfigRepository.findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE));
 
         return switch (version) {
             case "latest" -> buildMetadataVD13(credentialConfigList, issuer, version);
@@ -410,6 +418,26 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
             case "vd11" -> buildMetadataVD11(credentialConfigList, issuer, version);
             default -> throw new CertifyException("UNSUPPORTED_METADATA_VERSION", "Unsupported version: " + version);
         };
+    }
+
+    /**
+     * Restricts well-known {@code credential_configurations_supported} to configured formats.
+     * Default is {@code ldp_vc}. When {@link #wellKnownSupportedFormats} is blank, all active configs are advertised.
+     */
+    private List<CredentialConfig> filterForWellKnown(List<CredentialConfig> credentialConfigList) {
+        if (!StringUtils.hasText(wellKnownSupportedFormats)) {
+            return credentialConfigList;
+        }
+        Set<String> allowedFormats = Arrays.stream(wellKnownSupportedFormats.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (allowedFormats.isEmpty()) {
+            return credentialConfigList;
+        }
+        return credentialConfigList.stream()
+                .filter(config -> allowedFormats.contains(config.getCredentialFormat()))
+                .collect(Collectors.toList());
     }
 
     private CredentialIssuerMetadataVD13DTO buildMetadataVD13(List<CredentialConfig> credentialConfigList,
@@ -470,10 +498,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     private void populateCommonMetadataFields(CredentialIssuerMetadataDTO metadata, Issuer issuer, String version) {
         metadata.setCredentialIssuer(issuer.getCredentialIssuerUrl());
         metadata.setAuthorizationServers(resolveAuthorizationServers(issuer));
-        metadata.setCredentialEndpoint(buildCredentialEndpoint(issuer, version));
+        metadata.setCredentialEndpoint(IssuerUrlUtil.buildCredentialEndpoint(credentialIssuer, version));
         metadata.setDisplay(mapIssuerDisplay(issuer));
         if (allowCNonce) {
-            metadata.setNonceEndpoint(buildNonceEndpoint(issuer));
+            metadata.setNonceEndpoint(IssuerUrlUtil.buildNonceEndpoint(credentialIssuer));
         }
     }
 
@@ -491,9 +519,6 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
                 .collect(Collectors.toList());
     }
 
-    private String buildNonceEndpoint(Issuer issuer) {
-        return issuer.getCredentialIssuerUrl() + "/nonce";
-    }
 
     private List<String> resolveAuthorizationServers(Issuer issuer) {
         Set<String> allServers = new LinkedHashSet<>();
@@ -524,13 +549,6 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         }
 
         return new ArrayList<>(allServers);
-    }
-
-    private String buildCredentialEndpoint(Issuer issuer, String version) {
-        if ("latest".equals(version)) {
-            return issuer.getCredentialIssuerUrl() + "/issuance/credential";
-        }
-        return issuer.getCredentialIssuerUrl() + "/issuance/" + version + "/credential";
     }
 
     private CredentialConfigurationSupportedDTO mapToSupportedDTO(CredentialConfig credentialConfig) {

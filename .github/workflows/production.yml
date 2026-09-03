@@ -7,284 +7,79 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      deploy_to_eks:
-        description: "Deploy to production EKS after promotion"
-        required: false
-        default: false
-        type: boolean
-      release_tag:
-        description: "Release tag to promote, e.g. v2.0.1"
+      image_tag:
+        description: "Enter the Docker image tag to deploy (e.g. v1.0.26 or prod-abc1234)"
         required: true
         type: string
-      source_rc_tag:
-        description: "Optional: exact RC tag to promote (e.g. v2.0.1-RC2). Leave blank to auto-detect the latest matching RC."
-        required: false
-        type: string
-  # Production is manual-only. Uncomment below if you later want a v-tag push
-  # to also trigger this pipeline automatically.
-  # push:
-  #   tags:
-  #     - 'v*'
 
 jobs:
-  classify:
-    name: Classify Release Tag
-    runs-on: ubuntu-latest
-    outputs:
-      is_release: ${{ steps.check.outputs.is_release }}
-    steps:
-      - name: Check release_tag matches release pattern (case-insensitive, no suffix)
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            TAG="${{ github.ref_name }}"
-          else
-            TAG="${{ inputs.release_tag }}"
-          fi
-
-          if [ -z "$TAG" ]; then
-            echo "::error::release_tag is required."
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          LOWER=$(echo "$TAG" | tr '[:upper:]' '[:lower:]')
-
-          if [[ "$LOWER" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag '$TAG' matches release pattern (vX.Y.Z, no suffix). Proceeding to production."
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Tag '$TAG' does not match release pattern (vX.Y.Z). Production pipeline will not run."
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          fi
-
-  resolve:
-    name: Resolve Release And Source RC Tags
-    needs: [classify]
-    if: ${{ needs.classify.outputs.is_release == 'true' }}
-    runs-on: ubuntu-latest
-    outputs:
-      release_tag: ${{ steps.resolve.outputs.release_tag }}
-      source_rc_tag: ${{ steps.resolve.outputs.source_rc_tag }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Determine release tag and source RC tag
-        id: resolve
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            RELEASE_TAG="${{ github.ref_name }}"
-          else
-            RELEASE_TAG="${{ inputs.release_tag }}"
-          fi
-
-          if [ -z "$RELEASE_TAG" ]; then
-            echo "::error::release_tag is required."
-            exit 1
-          fi
-
-          if [ -n "${{ inputs.source_rc_tag }}" ]; then
-            SOURCE_RC_TAG="${{ inputs.source_rc_tag }}"
-          else
-            LOWER_RELEASE=$(echo "$RELEASE_TAG" | tr '[:upper:]' '[:lower:]')
-            ESCAPED=$(echo "$LOWER_RELEASE" | sed 's/[][\.^$*+?(){}|]/\\&/g')
-            PATTERN="^${ESCAPED}-rc[0-9]+$"
-
-            for t in $(git tag --list); do
-              lt=$(echo "$t" | tr '[:upper:]' '[:lower:]')
-              if [[ "$lt" =~ $PATTERN ]]; then
-                echo "$t"
-              fi
-            done | sort -V | tail -n1 > /tmp/latest_rc.txt
-            SOURCE_RC_TAG=$(cat /tmp/latest_rc.txt)
-
-            if [ -z "$SOURCE_RC_TAG" ]; then
-              echo "::error::No RC tag found matching ${RELEASE_TAG}-RCn (any case). Cannot promote without a source RC image."
-              exit 1
-            fi
-          fi
-
-          echo "Release tag    : $RELEASE_TAG"
-          echo "Source RC tag  : $SOURCE_RC_TAG"
-
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "source_rc_tag=$SOURCE_RC_TAG" >> "$GITHUB_OUTPUT"
-
-  trigger-unit-tests:
-    name: Production Unit Tests
-    needs: [classify]
-    if: ${{ needs.classify.outputs.is_release == 'true' }}
-    uses: ./.github/workflows/unit-test.yml
-    secrets: {}
-
-  trigger-automation-tests:
-    name: Production Automation Tests
-    needs: [classify]
-    if: ${{ needs.classify.outputs.is_release == 'true' }}
-    uses: ./.github/workflows/integration-tests.yml
-    secrets: {}
-
-  promote:
-    name: Promote Staging RC Image To Production
-    needs: [classify, resolve, trigger-unit-tests, trigger-automation-tests]
-    if: ${{ needs.classify.outputs.is_release == 'true' && needs.resolve.result == 'success' && needs.trigger-unit-tests.result == 'success' && needs.trigger-automation-tests.result == 'success' }}
-    runs-on: [self-hosted, linux, x64, aws]
-    outputs:
-      image_tag: ${{ steps.promote.outputs.image_tag }}
-    steps:
-      - name: Registry login
-        uses: docker/login-action@v3
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Pull approved RC image from staging repository
-        run: |
-          docker pull "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.resolve.outputs.source_rc_tag }}"
-
-      - name: Tag and push as production release (registry promotion, no rebuild)
-        id: promote
-        run: |
-          SRC="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.resolve.outputs.source_rc_tag }}"
-          DEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.resolve.outputs.release_tag }}"
-          DEST_LATEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest"
-
-          docker tag "$SRC" "$DEST"
-          docker tag "$SRC" "$DEST_LATEST"
-
-          docker push "$DEST"
-          docker push "$DEST_LATEST"
-
-          echo "image_tag=${{ needs.resolve.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
-
-      - name: Image cleanup
-        if: always()
-        run: |
-          docker image rm "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.resolve.outputs.source_rc_tag }}" || true
-          docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.resolve.outputs.release_tag }}" || true
-          docker image rm "docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:latest" || true
-          docker image prune -af || true
-
   deploy:
     name: Production Deploy To EKS
-    needs: [classify, promote]
-    if: ${{ needs.classify.outputs.is_release == 'true' && needs.promote.result == 'success' && inputs.deploy_to_eks == true }}
     uses: ./.github/workflows/deploy-eks.yml
     with:
       aws_region: ${{ vars.AWS_REGION }}
       aws_role_to_assume: ${{ vars.PRODUCTION_GITHUB_ACTIONS_AWS_ROLE_ARN }}
       eks_cluster_name: ${{ vars.PRODUCTION_EKS_CLUSTER_NAME }}
       kubernetes_namespace: ${{ vars.PRODUCTION_KUBERNETES_NAMESPACE }}
-      docker_image: docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.promote.outputs.image_tag }}
+      docker_image: docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ inputs.image_tag }}
       helm_release_name: inji-certify-4152-repo
       helm_chart_path: deployment-configs/helm/new-inji-certify
       deployment_configs_ref: production-main
-
-      
+      unit_test_status: "SKIPPED"
+      trivy_status: "SKIPPED"
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
       discord_webhook: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
+      NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+      NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
 
   notify:
     name: Pipeline Result Notification
-    needs:
-      [
-        classify,
-        resolve,
-        trigger-unit-tests,
-        trigger-automation-tests,
-        promote,
-        deploy,
-      ]
-    if: ${{ always() && needs.classify.outputs.is_release == 'true' }}
-    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: ${{ always() }}
+    runs-on: [self-hosted, linux, x64, aws]
     env:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
     steps:
-      - name: Download Unit Test Report
-        if: env.DISCORD_WEBHOOK != ''
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: unit-test-report
-          path: reports/unit-test
-
-      - name: Determine outcome and send single Discord alert
+      - name: Send Discord Alert
         if: env.DISCORD_WEBHOOK != ''
         run: |
-          UNIT_STATUS="${{ needs.trigger-unit-tests.outputs.test_status }}"
+          DEPLOY_RESULT="${{ needs.deploy.result }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          FAILED_STAGE=""
-          REASON=""
-
-          if [ "${{ needs.resolve.result }}" = "failure" ]; then
-            FAILED_STAGE="Resolve Release/RC Tag"
-            REASON="No matching RC tag was found to promote, or release_tag was missing."
-          elif [ "${{ needs.trigger-unit-tests.result }}" = "failure" ]; then
-            FAILED_STAGE="Unit Tests"
-            REASON="Unit test pass percentage was below the required threshold."
-          elif [ "${{ needs.trigger-automation-tests.result }}" = "failure" ]; then
-            FAILED_STAGE="Automation Tests"
-            REASON="Automation/integration test suite failed."
-          elif [ "${{ needs.promote.result }}" = "failure" ]; then
-            FAILED_STAGE="Promote To Production"
-            REASON="Could not pull the RC image from staging or push it to the production registry."
-          elif [ "${{ needs.deploy.result }}" = "failure" ]; then
-            FAILED_STAGE="Deploy To EKS"
-            REASON="Deployment failed, or rollout did not become healthy within the 5 minute timeout."
-          fi
-
-          if [ -n "$FAILED_STAGE" ]; then
-            CONTENT=$(cat <<EOF
-          ❌ **Production Pipeline Failed**
-
-          Repository  : ${{ github.repository }}
-          Release tag : ${{ needs.resolve.outputs.release_tag }}
-
-          Failed at : ${FAILED_STAGE}
-          Reason    : ${REASON}
-
-          Triggered By : ${{ github.actor }}
-
-          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          EOF
-            )
-            curl -sS -F "content=${CONTENT}" "$DISCORD_WEBHOOK"
+          if [ "$DEPLOY_RESULT" = "success" ]; then
+            STATUS_EMOJI="✅"
+            STATUS_TEXT="Production Deployment Successful"
           else
-            if [ "${{ needs.deploy.result }}" = "success" ]; then
-              DEPLOY_STATUS="PASSED"
-            else
-              DEPLOY_STATUS="NOT DEPLOYED (promoted to registry only)"
-            fi
-
-            UNIT_REPORT_STATUS="Not available"
-            [ -f reports/unit-test/unit-test-report.txt ] && UNIT_REPORT_STATUS="Attached"
-
-            CONTENT=$(cat <<EOF
-          🚀 **Production Deployment Report**
-
-          Repository  : ${{ github.repository }}
-          Release tag : ${{ needs.resolve.outputs.release_tag }}
-          Source RC   : ${{ needs.resolve.outputs.source_rc_tag }}
-
-          Deployment : ${DEPLOY_STATUS}
-
-          Unit Test Report : ${UNIT_REPORT_STATUS}
-
-          Triggered By : ${{ github.actor }}
-
-          🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          EOF
-            )
-
-            CURL_ARGS=(-sS -F "content=${CONTENT}")
-            [ -f reports/unit-test/unit-test-report.txt ] && CURL_ARGS+=(-F "file1=@reports/unit-test/unit-test-report.txt")
-
-            curl "${CURL_ARGS[@]}" "$DISCORD_WEBHOOK"
+            STATUS_EMOJI="❌"
+            STATUS_TEXT="Production Deployment Failed"
           fi
+
+          CONTENT=$(cat <<EOF
+          ${STATUS_EMOJI} **${STATUS_TEXT}**
+
+          **Repository**
+          ${{ github.repository }}
+
+          **Target Tag**
+          ${{ inputs.image_tag }}
+
+          **Docker Image**
+          docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ inputs.image_tag }}
+
+          **Triggered By**
+          ${{ github.actor }}
+
+          🔗 ${RUN_URL}
+          EOF
+          )
+
+          PAYLOAD=$(jq -n --arg content "$CONTENT" '{content: $content}')
+
+          curl -sS \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$DISCORD_WEBHOOK"

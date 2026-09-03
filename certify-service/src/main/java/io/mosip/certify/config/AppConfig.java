@@ -16,6 +16,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -34,6 +35,7 @@ import io.mosip.kernel.keymanagerservice.service.KeymanagerService;
 import lombok.extern.slf4j.Slf4j;
 
 @Configuration
+@Order(1) // ROOT/master keys must exist before IssuerBootstrapConfig provisions mdoc IACA/DS
 @EnableJpaRepositories(basePackages = {"io.mosip.kernel.keymanagerservice.repository", "io.mosip.certify.repository"})
 @EntityScan(basePackages = {"io.mosip.kernel.keymanagerservice.entity, io.mosip.certify.entity"})
 @Slf4j

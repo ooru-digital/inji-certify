@@ -435,11 +435,17 @@ istio:
   uriMatches:
     - matchType: exact
       uri: /.well-known/openid-credential-issuer
-      rewriteUri: /v1/certify/issuance/.well-known/openid-credential-issuer
+      rewriteUri: /v1/certify/.well-known/openid-credential-issuer
       port: 80
     - matchType: exact
       uri: /.well-known/did.json
-      rewriteUri: /v1/certify/issuance/.well-known/did.json
+      rewriteUri: /v1/certify/.well-known/did.json
+      port: 80
+    # Inji Wallet appends /.well-known/openid-credential-issuer to credential_issuer_host
+    # e.g. /certify/iiitb-ac/.well-known/openid-credential-issuer
+    - matchType: prefix
+      uri: /certify/
+      rewriteUri: /v1/certify/
       port: 80
     - matchType: prefix
       uri: /

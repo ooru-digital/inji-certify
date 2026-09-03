@@ -1,4 +1,4 @@
-FROM injistack/inji-certify:0.14.0
+FROM ooruio/inji-certify:1.2.3
 
 ARG SOURCE
 ARG COMMIT_HASH
@@ -11,3 +11,4 @@ LABEL build_time=${BUILD_TIME}
 
 # copy all files under target/ to the plugins folder
 COPY ./target/*.jar ${loader_path_env}
+COPY credissuer-certify-integration-impl-0.2.1.jar ${loader_path_env}

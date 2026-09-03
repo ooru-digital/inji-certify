@@ -37,7 +37,6 @@ import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.mdoc.MdocDsKeyMaterial;
 import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.utils.CredentialUtils;
-import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.utils.VCIssuanceUtil;
 import io.mosip.certify.validators.CredentialRequestValidator;
@@ -105,8 +104,6 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     @Autowired
     private PixelPass pixelPass;
 
-    private Map<String, Object> didDocument;
-
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
 
@@ -123,7 +120,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     private String domainUrl;
 
     @Autowired
-    private DIDDocumentUtil didDocumentUtil;
+    private DidDocumentService didDocumentService;
 
     @Autowired
     private MdocPkiService mdocPkiService;
@@ -151,8 +148,6 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
-        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId());
-
         // 1. Credential Request validation
         boolean isValidCredentialRequest = CredentialRequestValidator.isValid(credentialRequest);
         if(!isValidCredentialRequest) {
@@ -163,6 +158,8 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
         // 2. Scope Validation
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim,
+                credentialRequest.getProof());
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialMetadata> result = getScopeCredentialMapping(scope, credentialRequest.getFormat(),
@@ -204,9 +201,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument(String issuerId) {
-        Issuer issuer = issuerResolver.resolve(issuerId);
-        didDocument = didDocumentUtil.generateDIDDocument(issuer);
-        return didDocument;
+        return didDocumentService.getDIDDocument(issuerId);
     }
 
     private VCResult<?> getVerifiableCredential(CredentialRequest credentialRequest, CredentialMetadata credentialMetadata,

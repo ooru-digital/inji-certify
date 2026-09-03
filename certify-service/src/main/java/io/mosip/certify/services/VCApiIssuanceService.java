@@ -79,26 +79,48 @@ public class VCApiIssuanceService {
     }
 
     /**
-     * Preferred property order for LDP VC JSON responses (VCDM example alignment).
+     * Property order matching previously issued (wallet-accepted) LDP VCs.
      * Remaining properties are appended in their original encounter order.
      */
     private static final List<String> VC_PROPERTY_ORDER = List.of(
-            "@context",
             "id",
             "type",
+            "proof",
             "issuer",
+            "@context",
             "validFrom",
             "validUntil",
             "issuanceDate",
             "expirationDate",
-            "credentialSubject",
             "credentialStatus",
+            "credentialSubject",
             "credentialSchema",
             "evidence",
             "termsOfUse",
             "refreshService",
-            "renderMethod",
-            "proof"
+            "renderMethod"
+    );
+
+    private static final List<String> CREDENTIAL_STATUS_ORDER = List.of(
+            "id",
+            "type",
+            "statusPurpose",
+            "statusListIndex",
+            "statusListCredential"
+    );
+
+    private static final List<String> PROOF_ORDER = List.of(
+            "type",
+            "created",
+            "proofValue",
+            "proofPurpose",
+            "verificationMethod",
+            "cryptosuite",
+            "jws",
+            "nonce",
+            "expires",
+            "domain",
+            "challenge"
     );
 
     @SuppressWarnings("unchecked")
@@ -106,19 +128,44 @@ public class VCApiIssuanceService {
         if (credential instanceof JsonLDObject jsonLDObject) {
             Object json = jsonLDObject.getJsonObject();
             if (json instanceof Map<?, ?> map) {
-                return orderCredentialProperties((Map<String, Object>) map);
+                return orderIssuedCredential((Map<String, Object>) map);
             }
         }
         if (credential instanceof Map<?, ?> map) {
-            return orderCredentialProperties((Map<String, Object>) map);
+            return orderIssuedCredential((Map<String, Object>) map);
         }
         throw new CertifyException(ErrorConstants.JSON_PROCESSING_ERROR,
                 "Unable to convert verifiable credential to response format");
     }
 
-    private Map<String, Object> orderCredentialProperties(Map<String, Object> source) {
+    private Map<String, Object> orderIssuedCredential(Map<String, Object> source) {
+        Map<String, Object> ordered = orderProperties(source, VC_PROPERTY_ORDER);
+        ordered.computeIfPresent("proof", (key, value) -> orderNested(value, PROOF_ORDER));
+        ordered.computeIfPresent("credentialStatus", (key, value) -> orderNested(value, CREDENTIAL_STATUS_ORDER));
+        ordered.computeIfPresent("credentialSubject", (key, value) -> orderCredentialSubject(value));
+        return ordered;
+    }
+
+    private Object orderNested(Object value, List<String> preferredOrder) {
+        if (value instanceof Map<?, ?> map) {
+            return orderProperties(castMap(map), preferredOrder);
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(item -> orderNested(item, preferredOrder)).toList();
+        }
+        return value;
+    }
+
+    private Object orderCredentialSubject(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return value;
+        }
+        return orderProperties(castMap(map), List.of("id"));
+    }
+
+    private Map<String, Object> orderProperties(Map<String, Object> source, List<String> preferredOrder) {
         Map<String, Object> ordered = new LinkedHashMap<>();
-        for (String key : VC_PROPERTY_ORDER) {
+        for (String key : preferredOrder) {
             if (source.containsKey(key)) {
                 ordered.put(key, source.get(key));
             }
@@ -127,5 +174,10 @@ public class VCApiIssuanceService {
             ordered.putIfAbsent(entry.getKey(), entry.getValue());
         }
         return ordered;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Map<?, ?> map) {
+        return (Map<String, Object>) map;
     }
 }

@@ -13,6 +13,7 @@ This documentation explains how issuer identity works in Inji Certify today, and
 | Architects / tech leads evaluating multi-issuer | [Gap Analysis](./Gap-Analysis.md) |
 | Implementation team | [Implementation Design](./Multi-issuer-impl-plan.md) |
 | Anyone tracing the end-to-end flow | [Issuer Flow](./Issuer-Flow.md) |
+| Issuance when many issuers share a scope | [Proof `aud` issuer resolution](./Proof-Aud-Issuer-Resolution.md) |
 
 ---
 
@@ -33,6 +34,7 @@ This documentation explains how issuer identity works in Inji Certify today, and
 3. **[Gap Analysis](./Gap-Analysis.md)** — What is missing for true multi-issuer support.
 4. **[POC Proposal](./Multi-issuer-POC-Proposal.md)** — What was built in the POC, alignment with the design, gaps, and phasing for team / lead review.
 5. **[Implementation Design](./Multi-issuer-impl-plan.md)** — Full technical design: Issuer Onboarding API, NEW vs CHANGED, file touch map, flows.
+6. **[Proof `aud` issuer resolution](./Proof-Aud-Issuer-Resolution.md)** — Shared `/issuance/credential`; identify issuer from wallet JWT proof `aud` when scopes are reused across orgs.
 
 ---
 

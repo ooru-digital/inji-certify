@@ -12,6 +12,7 @@ import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.DidWebUtil;
 import io.mosip.certify.utils.IssuerMapper;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import io.mosip.certify.utils.KeyManagerAppIdUtil;
 import io.mosip.kernel.keymanagerservice.dto.KeyPairGenerateRequestDto;
 import io.mosip.kernel.keymanagerservice.entity.KeyPolicy;
@@ -48,9 +49,6 @@ public class IssuerOnboardingService {
 
     @Value("${mosip.certify.domain.url}")
     private String domainUrl;
-
-    @Value("${mosip.certify.identifier}")
-    private String defaultIdentifier;
 
     @Value("${server.servlet.path}")
     private String servletPath;
@@ -99,8 +97,8 @@ public class IssuerOnboardingService {
                     "Key generation failed for issuer: " + request.getIssuerId());
         }
 
-        String credentialIssuerUrl = domainUrl + servletPath;
-        String identifier = defaultIdentifier;
+        String credentialIssuerUrl = IssuerUrlUtil.buildCredentialIssuerUrl(domainUrl, request.getIssuerId());
+        String identifier = credentialIssuerUrl;
         String didUrl = resolveDidUrl(request);
 
         Issuer issuer = new Issuer();
@@ -135,9 +133,9 @@ public class IssuerOnboardingService {
                             + " (received: " + abbreviateForError(request.getIssuerId()) + ")");
         }
         request.setIssuerId(issuerId);
-        if (IssuerConstants.DEFAULT_ISSUER_ID.equals(issuerId)) {
+        if (IssuerIdValidator.isReserved(issuerId)) {
             throw new CertifyException(ErrorConstants.INVALID_ISSUER_ID,
-                    "Cannot onboard reserved issuerId: default");
+                    "Cannot onboard reserved issuerId: " + issuerId);
         }
         if (StringUtils.isBlank(request.getDidUrl()) || !request.getDidUrl().startsWith("did:")) {
             throw new CertifyException(ErrorConstants.INVALID_DID_URL,
@@ -266,10 +264,9 @@ public class IssuerOnboardingService {
         response.setMdocDsAppId(issuer.getMdocDsAppId());
         response.setMdocDsRefId(issuer.getMdocDsRefId());
 
-        String base = domainUrl + servletPath;
         Map<String, String> wellKnown = new LinkedHashMap<>();
         wellKnown.put("openidCredentialIssuer",
-                base + "/.well-known/openid-credential-issuer?issuerId=" + issuer.getIssuerId());
+                IssuerUrlUtil.buildOpenIdCredentialIssuerWellKnownUrl(domainUrl, issuer.getIssuerId()));
         wellKnown.put("didJson", DidWebUtil.buildIssuerDidDocumentUrl(domainUrl, servletPath, issuer.getIssuerId()));
         response.setWellKnownEndpoints(wellKnown);
         return response;

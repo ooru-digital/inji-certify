@@ -11,8 +11,10 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
+import io.mosip.certify.config.IssuerContext;
 import io.mosip.certify.core.dto.CredentialProof;
 import io.mosip.certify.core.exception.InvalidRequestException;
+import io.mosip.certify.entity.Issuer;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,7 @@ class JwtProofValidatorTest {
         proofConfiguration = Map.of("jwt", Map.of(
                 "proof_signing_alg_values_supported", List.of("RS256", "ES256K", "Ed25519")));
         ReflectionTestUtils.setField(jwtProofValidator, "credentialIdentifier", "test-credential-id");
+        ReflectionTestUtils.setField(jwtProofValidator, "domainUrl", "https://collectible-dissentiently-arie.ngrok-free.dev/certify");
     }
 
     @Test
@@ -235,6 +238,64 @@ class JwtProofValidatorTest {
         boolean result = jwtProofValidator.validate("test-client", "test-nonce", credentialProof, proofConfiguration);
 
         assertFalse(result, "Client id should match");
+    }
+
+    @Test
+    public void testValidate_AcceptsPerIssuerCredentialIssuerHostAsAud() throws Exception {
+        IssuerContext issuerContext = new IssuerContext();
+        Issuer issuer = new Issuer();
+        issuer.setIssuerId("CHAIN-EHCZP");
+        issuer.setIdentifier("https://collectible-dissentiently-arie.ngrok-free.dev/certify");
+        issuer.setCredentialIssuerUrl("https://stage-injicertify.credissuer.com/CHAIN-EHCZP");
+        issuerContext.setCurrent(issuer);
+        ReflectionTestUtils.setField(jwtProofValidator, "issuerContext", issuerContext);
+
+        String jwt = createValidJWTWithAudience(
+                "https://collectible-dissentiently-arie.ngrok-free.dev/certify/CHAIN-EHCZP");
+        CredentialProof proof = new CredentialProof();
+        proof.setJwt(jwt);
+
+        assertTrue(jwtProofValidator.validate("test-client", "test-nonce", proof, proofConfiguration),
+                "Wallet aud of {domain}/{issuerId} should be accepted");
+    }
+
+    @Test
+    public void testValidate_RejectsUnknownAud() throws Exception {
+        IssuerContext issuerContext = new IssuerContext();
+        Issuer issuer = new Issuer();
+        issuer.setIssuerId("CHAIN-EHCZP");
+        issuer.setIdentifier("https://collectible-dissentiently-arie.ngrok-free.dev/certify");
+        issuerContext.setCurrent(issuer);
+        ReflectionTestUtils.setField(jwtProofValidator, "issuerContext", issuerContext);
+
+        String jwt = createValidJWTWithAudience("https://evil.example/certify/other");
+        CredentialProof proof = new CredentialProof();
+        proof.setJwt(jwt);
+
+        assertFalse(jwtProofValidator.validate("test-client", "test-nonce", proof, proofConfiguration),
+                "Unrelated aud must be rejected");
+    }
+
+    private String createValidJWTWithAudience(String audience) throws Exception {
+        RSAKey rsaJWK = new RSAKeyGenerator(2048)
+                .keyID(UUID.randomUUID().toString())
+                .generate();
+        RSAKey rsaPublicJWK = rsaJWK.toPublicJWK();
+        String didJWK = "did:jwk:" + Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(rsaPublicJWK.toJSONString().getBytes()) + "#0";
+        JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.RS256)
+                .type(new JOSEObjectType("openid4vci-proof+jwt"))
+                .keyID(didJWK)
+                .build();
+        SignedJWT jwt = new SignedJWT(header, new JWTClaimsSet.Builder()
+                .audience(audience)
+                .issuer("test-client")
+                .claim("nonce", "test-nonce")
+                .issueTime(new Date())
+                .expirationTime(new Date(System.currentTimeMillis() + 60000))
+                .build());
+        jwt.sign(new RSASSASigner(rsaJWK));
+        return jwt.serialize();
     }
 
     @Test
