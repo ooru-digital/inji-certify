@@ -101,6 +101,7 @@ public class CredentialConfigurationServiceImplTest {
         ReflectionTestUtils.setField(credentialConfigurationService, "servletPath", "v1/test");
         ReflectionTestUtils.setField(credentialConfigurationService, "pluginMode", "DataProvider");
         ReflectionTestUtils.setField(credentialConfigurationService, "issuerDisplay", List.of(Map.of()));
+        ReflectionTestUtils.setField(credentialConfigurationService, "wellKnownSupportedFormats", "ldp_vc");
         Map<String, List<String>> credentialSigningMap = new LinkedHashMap<>();
         credentialSigningMap.put("Ed25519Signature2020", List.of("EdDSA"));
         credentialSigningMap.put("RsaSignature2018", List.of("RS256"));
@@ -483,6 +484,9 @@ public class CredentialConfigurationServiceImplTest {
 
         when(credentialConfigMapper.toDto(mdocConfig)).thenReturn(mdocDTO);
 
+        // Opt in to mdoc on well-known (default is ldp_vc only)
+        ReflectionTestUtils.setField(credentialConfigurationService, "wellKnownSupportedFormats", "mso_mdoc");
+
         // Call the method
         CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
 
@@ -497,6 +501,46 @@ public class CredentialConfigurationServiceImplTest {
         Assert.assertNotNull(supportedDTO.getClaims());
         Assert.assertEquals("docType1", supportedDTO.getDocType());
         Assert.assertNull(supportedDTO.getCredentialDefinition());
+    }
+
+    @Test
+    public void fetchCredentialIssuerMetadata_filtersToWellKnownSupportedFormats() {
+        CredentialConfig ldpConfig = new CredentialConfig();
+        ldpConfig.setConfigId(UUID.randomUUID().toString());
+        ldpConfig.setCredentialConfigKeyId("ldp-credential");
+        ldpConfig.setStatus("active");
+        ldpConfig.setCredentialFormat("ldp_vc");
+        ldpConfig.setCredentialType("VerifiableCredential,TestCredential");
+        ldpConfig.setContext("https://www.w3.org/ns/credentials/v2");
+        ldpConfig.setSignatureCryptoSuite("Ed25519Signature2020");
+
+        CredentialConfig mdocConfig = new CredentialConfig();
+        mdocConfig.setConfigId(UUID.randomUUID().toString());
+        mdocConfig.setCredentialConfigKeyId("mdoc-credential");
+        mdocConfig.setStatus("active");
+        mdocConfig.setCredentialFormat("mso_mdoc");
+        mdocConfig.setDocType("org.iso.18013.5.1.mDL");
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("default"), eq("active")))
+                .thenReturn(List.of(ldpConfig, mdocConfig));
+
+        CredentialConfigurationDTO ldpDto = new CredentialConfigurationDTO();
+        ldpDto.setCredentialFormat("ldp_vc");
+        ldpDto.setCredentialConfigKeyId("ldp-credential");
+        ldpDto.setScope("mock_identity_vc_ldp");
+        ldpDto.setCredentialTypes(List.of("VerifiableCredential", "TestCredential"));
+        ldpDto.setContextURLs(List.of("https://www.w3.org/ns/credentials/v2"));
+        when(credentialConfigMapper.toDto(ldpConfig)).thenReturn(ldpDto);
+
+        ReflectionTestUtils.setField(credentialConfigurationService, "wellKnownSupportedFormats", "ldp_vc");
+
+        CredentialIssuerMetadataDTO result = credentialConfigurationService.fetchCredentialIssuerMetadata(null, "latest");
+
+        Assert.assertEquals(1, result.getCredentialConfigurationSupportedDTO().size());
+        Assert.assertTrue(result.getCredentialConfigurationSupportedDTO().containsKey("ldp-credential"));
+        Assert.assertFalse(result.getCredentialConfigurationSupportedDTO().containsKey("mdoc-credential"));
+        Assert.assertEquals("ldp_vc",
+                result.getCredentialConfigurationSupportedDTO().get("ldp-credential").getFormat());
     }
 
     // Add these methods to CredentialConfigurationServiceImplTest

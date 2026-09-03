@@ -86,6 +86,13 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     @Value("#{${mosip.certify.credential-config.as-mapping:{}}}")
     private Map<String, String> authorizationServerMapping;
 
+    /**
+     * Comma-separated formats advertised on the openid-credential-issuer well-known endpoint.
+     * Default {@code ldp_vc} = only W3C VCs. Empty = advertise all active credential configs.
+     */
+    @Value("${mosip.certify.credential-config.wellknown.supported-formats:ldp_vc}")
+    private String wellKnownSupportedFormats;
+
     private static final String CREDENTIAL_CONFIG_CACHE_NAME = "credentialConfig";
 
     @Override
@@ -402,8 +409,8 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     @Override
     public CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String issuerId, String version) {
         Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(issuerId));
-        List<CredentialConfig> credentialConfigList = credentialConfigRepository
-                .findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE);
+        List<CredentialConfig> credentialConfigList = filterForWellKnown(
+                credentialConfigRepository.findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE));
 
         return switch (version) {
             case "latest" -> buildMetadataVD13(credentialConfigList, issuer, version);
@@ -411,6 +418,26 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
             case "vd11" -> buildMetadataVD11(credentialConfigList, issuer, version);
             default -> throw new CertifyException("UNSUPPORTED_METADATA_VERSION", "Unsupported version: " + version);
         };
+    }
+
+    /**
+     * Restricts well-known {@code credential_configurations_supported} to configured formats.
+     * Default is {@code ldp_vc}. When {@link #wellKnownSupportedFormats} is blank, all active configs are advertised.
+     */
+    private List<CredentialConfig> filterForWellKnown(List<CredentialConfig> credentialConfigList) {
+        if (!StringUtils.hasText(wellKnownSupportedFormats)) {
+            return credentialConfigList;
+        }
+        Set<String> allowedFormats = Arrays.stream(wellKnownSupportedFormats.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (allowedFormats.isEmpty()) {
+            return credentialConfigList;
+        }
+        return credentialConfigList.stream()
+                .filter(config -> allowedFormats.contains(config.getCredentialFormat()))
+                .collect(Collectors.toList());
     }
 
     private CredentialIssuerMetadataVD13DTO buildMetadataVD13(List<CredentialConfig> credentialConfigList,
