@@ -129,7 +129,9 @@ jobs:
       - name: Tag and push to production registry (no rebuild, not deployed to prod yet)
         run: |
           SRC="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+          # Trim any potential carriage returns from line endings
           DEST="docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+          DEST=$(echo "$DEST" | tr -d '\r')
           docker tag "$SRC" "$DEST"
           docker push "$DEST"
           
