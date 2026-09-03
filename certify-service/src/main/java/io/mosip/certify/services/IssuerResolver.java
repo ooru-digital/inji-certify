@@ -4,18 +4,23 @@ import io.mosip.certify.config.IssuerContext;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.IssuerConstants;
+import io.mosip.certify.core.dto.CredentialProof;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.core.validation.IssuerIdValidator;
 import io.mosip.certify.entity.CredentialConfig;
 import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.proof.JwtProofAudienceExtractor;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.certify.repository.IssuerRepository;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Slf4j
@@ -36,14 +41,23 @@ public class IssuerResolver {
 
     /**
      * Resolves the issuer for a credential request. Wallets do not send {@code issuerId}
-     * on {@code POST /issuance/credential}; when it is absent, match the access-token
-     * scope to an active credential configuration.
+     * on {@code POST /issuance/credential}; the JWT proof {@code aud} is the OpenID4VCI
+     * Credential Issuer Identifier. Scope is used only when it maps to a single issuer.
      */
     public Issuer resolve(String issuerId, String scopeClaim) {
+        return resolve(issuerId, scopeClaim, null);
+    }
+
+    public Issuer resolve(String issuerId, String scopeClaim, CredentialProof proof) {
         if (StringUtils.isNotBlank(issuerId)) {
             return resolve(issuerId);
         }
-        String matchedIssuerId = findIssuerIdByScope(scopeClaim);
+        String matchedIssuerId = findIssuerIdFromProof(proof);
+        if (StringUtils.isNotBlank(matchedIssuerId)) {
+            log.debug("Resolved issuer {} from JWT proof aud", matchedIssuerId);
+            return resolve(matchedIssuerId);
+        }
+        matchedIssuerId = findIssuerIdByScope(scopeClaim);
         if (StringUtils.isNotBlank(matchedIssuerId)) {
             log.debug("Resolved issuer {} from access-token scope", matchedIssuerId);
             return resolve(matchedIssuerId);
@@ -76,6 +90,55 @@ public class IssuerResolver {
         return StringUtils.defaultIfBlank(issuerId, IssuerConstants.DEFAULT_ISSUER_ID);
     }
 
+    private String findIssuerIdFromProof(CredentialProof proof) {
+        for (String audience : JwtProofAudienceExtractor.extractAudiences(proof)) {
+            if (StringUtils.isBlank(audience)) {
+                continue;
+            }
+            Optional<Issuer> byUrl = findActiveByIssuerUrl(audience.trim());
+            if (byUrl.isPresent()) {
+                return byUrl.get().getIssuerId();
+            }
+            String candidate = IssuerUrlUtil.extractLastPathSegment(audience);
+            if (IssuerIdValidator.isValid(candidate)) {
+                Optional<Issuer> byId = issuerRepository.findByIssuerIdAndStatus(candidate, Constants.ACTIVE);
+                if (byId.isPresent()) {
+                    return byId.get().getIssuerId();
+                }
+            }
+        }
+        return null;
+    }
+
+    private Optional<Issuer> findActiveByIssuerUrl(String audience) {
+        String trimmed = IssuerUrlUtil.trimTrailingSlash(audience);
+        Optional<Issuer> found = findByCredentialIssuerUrl(audience);
+        if (found.isEmpty() && !audience.equals(trimmed)) {
+            found = findByCredentialIssuerUrl(trimmed);
+        }
+        if (found.isEmpty() && !trimmed.isEmpty()) {
+            found = findByCredentialIssuerUrl(trimmed + "/");
+        }
+        if (found.isEmpty()) {
+            found = findByIdentifier(audience);
+        }
+        if (found.isEmpty() && !audience.equals(trimmed)) {
+            found = findByIdentifier(trimmed);
+        }
+        if (found.isEmpty() && !trimmed.isEmpty()) {
+            found = findByIdentifier(trimmed + "/");
+        }
+        return found;
+    }
+
+    private Optional<Issuer> findByCredentialIssuerUrl(String url) {
+        return issuerRepository.findByCredentialIssuerUrlAndStatus(url, Constants.ACTIVE);
+    }
+
+    private Optional<Issuer> findByIdentifier(String identifier) {
+        return issuerRepository.findByIdentifierAndStatus(identifier, Constants.ACTIVE);
+    }
+
     private String findIssuerIdByScope(String scopeClaim) {
         if (StringUtils.isBlank(scopeClaim)) {
             return null;
@@ -89,14 +152,16 @@ public class IssuerResolver {
             if (configs.isEmpty()) {
                 continue;
             }
-            if (configs.size() == 1) {
-                return configs.get(0).getIssuerId();
+            Set<String> issuerIds = new LinkedHashSet<>();
+            for (CredentialConfig config : configs) {
+                if (StringUtils.isNotBlank(config.getIssuerId())) {
+                    issuerIds.add(config.getIssuerId());
+                }
             }
-            return configs.stream()
-                    .map(CredentialConfig::getIssuerId)
-                    .filter(id -> !IssuerConstants.DEFAULT_ISSUER_ID.equals(id))
-                    .findFirst()
-                    .orElse(configs.get(0).getIssuerId());
+            if (issuerIds.size() == 1) {
+                return issuerIds.iterator().next();
+            }
+            log.debug("Scope {} matches {} issuers; not using scope to pick issuer", trimmed, issuerIds.size());
         }
         return null;
     }

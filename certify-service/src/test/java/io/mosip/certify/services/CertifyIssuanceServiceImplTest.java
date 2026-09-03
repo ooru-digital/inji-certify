@@ -217,7 +217,7 @@ public class CertifyIssuanceServiceImplTest {
         defaultIssuer.setDidUrl("https://test.issuer.com");
         defaultIssuer.setCredentialIssuerUrl("https://test.issuer.com");
         defaultIssuer.setStatus("active");
-        when(issuerResolver.resolve(nullable(String.class), any())).thenReturn(defaultIssuer);
+        when(issuerResolver.resolve(nullable(String.class), any(), nullable(CredentialProof.class))).thenReturn(defaultIssuer);
     }
 
     private CredentialRequest createValidCredentialRequest(String format) {
@@ -293,7 +293,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA"); // Example value
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdLdp");   // Example value
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdLdp");   // Example value
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:ldp"); // Example value
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite"); // Example Value
 
         // Corrected declaration of mockVcResultLdp
@@ -458,7 +457,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA"); // Example value
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppId");       // Example value
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefId");       // Example value
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:123"); // Example value
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite"); // Example Value
 
         when(mockSdJwt.addProof(
@@ -510,7 +508,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA"); // Example value
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdLdp");   // Example value
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdLdp");   // Example value
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:ldp"); // Example value
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite"); // Example Value
         // Mock credentialStatusPurposeList to be non-empty
         List<String> statusPurposeList = List.of("revocation");
@@ -572,7 +569,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA"); // Example value
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdLdp");   // Example value
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdLdp");   // Example value
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:ldp"); // Example value
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite"); // Example Value
         // Mock credentialStatusPurposeList to be non-empty
         List<String> statusPurposeList = List.of("revocation");
@@ -642,7 +638,6 @@ public class CertifyIssuanceServiceImplTest {
             when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("ES256");
             when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdMdoc");
             when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdMdoc");
-            when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:mdoc");
             when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite");
 
             when(mockMdoc.addProof(
@@ -708,7 +703,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA");
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdLdp");
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdLdp");
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:ldp");
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite");
 
         VCResult mockVcResultLdp = new VCResult<JsonLDObject>();
@@ -754,7 +748,6 @@ public class CertifyIssuanceServiceImplTest {
         when(vcFormatter.getProofAlgorithm(anyString())).thenReturn("EdDSA");
         when(vcFormatter.getAppID(anyString())).thenReturn("testAppIdLdp");
         when(vcFormatter.getRefID(anyString())).thenReturn("testRefIdLdp");
-        when(vcFormatter.getDidUrl(anyString())).thenReturn("did:example:ldp");
         when(vcFormatter.getSignatureCryptoSuite(anyString())).thenReturn("testSignatureCryptoSuite");
 
         VCResult mockVcResultLdp = new VCResult<JsonLDObject>();

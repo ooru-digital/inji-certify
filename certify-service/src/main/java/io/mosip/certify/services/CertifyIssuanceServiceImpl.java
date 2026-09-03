@@ -158,7 +158,8 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
         // 2. Scope Validation
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
-        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim);
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim,
+                credentialRequest.getProof());
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialMetadata> result = getScopeCredentialMapping(scope, credentialRequest.getFormat(),

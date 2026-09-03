@@ -59,4 +59,20 @@ public final class IssuerUrlUtil {
     public static String buildNonceEndpoint(String domainUrl) {
         return trimTrailingSlash(domainUrl) + "/nonce";
     }
+
+    /**
+     * Last path segment of a Credential Issuer Identifier, e.g.
+     * {@code https://host/certify/cr-org} → {@code cr-org}.
+     */
+    public static String extractLastPathSegment(String url) {
+        String trimmed = trimTrailingSlash(url);
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        int lastSlash = trimmed.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash == trimmed.length() - 1) {
+            return trimmed;
+        }
+        return trimmed.substring(lastSlash + 1);
+    }
 }

@@ -89,7 +89,8 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
 
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
-        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim);
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim,
+                credentialRequest.getProof());
         CredentialMetadata credentialMetadata = null;
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialMetadata> result = VCIssuanceUtil.getScopeCredentialMapping(scope, credentialRequest.getFormat(),

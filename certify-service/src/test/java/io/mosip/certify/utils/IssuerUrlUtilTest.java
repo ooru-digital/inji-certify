@@ -35,4 +35,15 @@ public class IssuerUrlUtilTest {
         assertEquals("https://host/certify/issuance/vd12/credential",
                 IssuerUrlUtil.buildCredentialEndpoint("https://host/certify", "vd12"));
     }
+
+    @Test
+    public void extractLastPathSegment_fromCredentialIssuerIdentifier() {
+        assertEquals("cr-org",
+                IssuerUrlUtil.extractLastPathSegment("https://host/certify/cr-org"));
+        assertEquals("cr-org",
+                IssuerUrlUtil.extractLastPathSegment("https://host/certify/cr-org/"));
+        assertEquals("certify",
+                IssuerUrlUtil.extractLastPathSegment("https://host/certify"));
+        assertEquals("", IssuerUrlUtil.extractLastPathSegment(""));
+    }
 }
