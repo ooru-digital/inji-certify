@@ -119,8 +119,10 @@ jobs:
 
       - name: Pull the image just built for staging
         run: |
-          docker pull "docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
-
+          SRC_IMAGE="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
+          echo "Pulling staging image: $SRC_IMAGE"
+          docker pull "$SRC_IMAGE"
+          
       - name: Tag and push to production registry (no rebuild, not deployed to prod yet)
         run: |
           SRC="docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}"
