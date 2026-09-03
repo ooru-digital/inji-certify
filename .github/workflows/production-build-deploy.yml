@@ -21,7 +21,7 @@ jobs:
     name: Production Unit Tests
     uses: ./.github/workflows/unit-test.yml
     secrets:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
       NEXUS_URL: ${{ secrets.NEXUS_URL }}
@@ -40,7 +40,7 @@ jobs:
 
     with:
       registry: docker.io
-      image_repository: ${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}
+      image_repository: ${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}
       image_tag_prefix: prod
       docker_context: .
       dockerfile: Dockerfile
@@ -52,7 +52,7 @@ jobs:
     secrets:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
-      DISCORD_STAGING_BUILDS_URL: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      DISCORD_PRODUCTION_BUILDS_URL: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
       NEXUS_URL: ${{ secrets.NEXUS_URL }}
@@ -77,10 +77,10 @@ jobs:
 
     with:
       aws_region: ${{ vars.AWS_REGION }}
-      aws_role_to_assume: ${{ vars.STAGING_GITHUB_ACTIONS_AWS_ROLE_ARN }}
-      eks_cluster_name: ${{ vars.STAGING_EKS_CLUSTER_NAME }}
-      kubernetes_namespace: ${{ vars.STAGING_KUBERNETES_NAMESPACE }}
-      docker_image: docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
+      aws_role_to_assume: ${{ vars.PRODUCTION_GITHUB_ACTIONS_AWS_ROLE_ARN }}
+      eks_cluster_name: ${{ vars.PRODUCTION_EKS_CLUSTER_NAME }}
+      kubernetes_namespace: ${{ vars.PRODUCTION_KUBERNETES_NAMESPACE }}
+      docker_image: docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
       helm_release_name: inji-certify-4152-repo
       helm_chart_path: deployment-configs/helm/new-inji-certify
       unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
@@ -91,7 +91,7 @@ jobs:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
-      discord_webhook: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      discord_webhook: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
       NEXUS_URL: ${{ secrets.NEXUS_URL }}
@@ -112,7 +112,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, aws]
 
     env:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
 
     steps:
       - name: Download Unit Test Report from Nexus
@@ -190,7 +190,7 @@ jobs:
           Container Build  : ${CONTAINER_RESULT}
           Deploy To EKS    : ${DEPLOY_RESULT}
 
-          **Docker Image** : docker.io/${{ vars.DOCKERHUB_STAGING_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
+          **Docker Image** : docker.io/${{ vars.DOCKERHUB_PRODUCTION_IMAGE_REPOSITORY }}:${{ needs.container_pipeline.outputs.image_tag }}
           **Triggered By** : ${{ github.actor }}
           🔗 ${RUN_URL}
           EOF
