@@ -14,6 +14,7 @@ import io.mosip.certify.core.dto.VCError;
 import io.mosip.certify.core.dto.OAuthTokenError;
 import io.mosip.certify.core.exception.*;
 import io.mosip.certify.core.util.CommonUtil;
+import io.mosip.certify.core.util.ProblemDetailsFactory;
 import io.mosip.certify.dpop.DpopProofValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
@@ -213,15 +214,9 @@ public class ExceptionHandlerAdvice extends ResponseEntityExceptionHandler imple
     }
 
     private ResponseEntity<ProblemDetails> problemDetails(HttpStatus status, String type, String detail, String instance) {
-        ProblemDetails body = new ProblemDetails();
-        body.setType(type);
-        body.setTitle(ProblemDetailsTypes.titleFor(type, status.getReasonPhrase()));
-        body.setDetail(detail);
-        body.setStatus(status.value());
-        body.setInstance(instance);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PROBLEM_JSON);
-        return new ResponseEntity<>(body, headers, status);
+        return new ResponseEntity<>(ProblemDetailsFactory.create(status, type, detail, instance), headers, status);
     }
 
     private String problemTypeFor(String errorCode) {

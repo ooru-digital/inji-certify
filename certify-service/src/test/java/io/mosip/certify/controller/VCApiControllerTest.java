@@ -8,11 +8,13 @@ import io.mosip.certify.core.constants.VCIErrorConstants;
 import io.mosip.certify.core.dto.ParsedAccessToken;
 import io.mosip.certify.core.dto.VCApiIssueRequest;
 import io.mosip.certify.core.exception.CertifyException;
+import io.mosip.certify.dpop.DpopProofValidator;
 import io.mosip.certify.services.VCApiIssuanceService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.MessageSource;
@@ -32,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @RunWith(SpringRunner.class)
 @WebMvcTest(VCApiController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "mosip.certify.vc-api.enabled=true")
 public class VCApiControllerTest {
 
@@ -45,6 +48,11 @@ public class VCApiControllerTest {
 
     @MockBean
     private ParsedAccessToken parsedAccessToken;
+
+    // AccessTokenValidationFilter is a @Component, so the web slice builds it
+    // and every collaborator it autowires has to exist here too.
+    @MockBean
+    private DpopProofValidator dpopProofValidator;
 
     @MockBean
     private MessageSource messageSource;
