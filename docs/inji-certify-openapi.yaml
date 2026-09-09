@@ -1236,10 +1236,43 @@ paths:
     get:
       tags:
         - Well-known
-      summary: Issuer metadata
-      description: 'This endpoint provides metadata about the credential issuer and the supported credential configurations. The response structure adapts based on the version query parameter, allowing clients to discover issuer capabilities and supported credential types for different OID4VCI versions. The response will be as per the applicable OID4VCI specification, for e.g. for draft 13 of OID4VCI, the specification to be referred is https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-ID1.html#name-credential-issuer-metadata-p'
+      summary: Default issuer metadata
+      description: 'OID4VCI Credential Issuer Metadata for the default issuer. Inji Wallet concatenates credential_issuer_host + /.well-known/openid-credential-issuer. The response lists every active credential configuration owned by the default issuer in credential_configurations_supported. Spec: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#section-12.2.2'
       operationId: getCredentialIssuerMetadata
       parameters:
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+            default: latest
+            enum:
+              - latest
+              - vd11
+              - vd12
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialIssuerMetadataDTO'
+  /{issuerId}/.well-known/openid-credential-issuer:
+    get:
+      tags:
+        - Well-known
+      summary: Per-issuer metadata
+      description: |
+        OID4VCI Credential Issuer Metadata for a specific issuer. Wallet credential_issuer_host is `{domain}/{issuerId}` (for example `https://host/certify/iiitb-ac`), so this path is `{issuerId}/.well-known/openid-credential-issuer`.
+        `credential_issuer` in the JSON equals that host. `credential_configurations_supported` lists every active credential template for this issuer only.
+      operationId: getIssuerCredentialIssuerMetadata
+      parameters:
+        - name: issuerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Issuer slug, for example iiitb-ac
         - name: version
           in: query
           required: false

@@ -11,7 +11,7 @@ on:
 jobs:
   alert:
     name: Alert - No Tag Pushed
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, aws]
     env:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_STAGING_BUILDS_URL }}
     steps:

@@ -270,6 +270,35 @@ public class VCApiTemplateIssuanceSupportTest {
     }
 
     @Test
+    public void issueFromTemplate_addsCredentialId_whenIdPrefixConfigured() throws Exception {
+        ReflectionTestUtils.setField(support, "idPrefix", "urn:uuid:");
+        CredentialConfigurationDTO config = ldpConfig();
+        when(credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId(config.getCredentialConfigKeyId()))
+                .thenReturn(TEMPLATE_NAME);
+        when(vcFormatter.getCredentialStatusPurpose(TEMPLATE_NAME)).thenReturn(Collections.emptyList());
+
+        W3CJsonLD mockW3CJsonLD = mock(W3CJsonLD.class);
+        when(credentialFactory.getCredential(VCFormats.LDP_VC)).thenReturn(Optional.of(mockW3CJsonLD));
+        ArgumentCaptor<Map<String, Object>> paramsCaptor = ArgumentCaptor.forClass(Map.class);
+        when(mockW3CJsonLD.createCredential(paramsCaptor.capture(), eq(TEMPLATE_NAME)))
+                .thenReturn("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}");
+        when(vcFormatter.getProofAlgorithm(TEMPLATE_NAME)).thenReturn("EdDSA");
+        when(vcFormatter.getAppID(TEMPLATE_NAME)).thenReturn("testAppId");
+        when(vcFormatter.getRefID(TEMPLATE_NAME)).thenReturn("testRefId");
+        when(vcFormatter.getSignatureCryptoSuite(TEMPLATE_NAME)).thenReturn("Ed25519Signature2020");
+        VCResult mockVcResult = new VCResult();
+        mockVcResult.setCredential(JsonLDObject.fromJson("{\"type\":[\"VerifiableCredential\",\"FarmerCredential\"]}"));
+        when(mockW3CJsonLD.addProof(anyString(), eq(""), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(mockVcResult);
+
+        support.issueFromTemplate(Map.of("fullName", "Jane Doe"), config, DEFAULT_VALIDITY);
+
+        Object credentialId = paramsCaptor.getValue().get("credentialId");
+        assertNotNull(credentialId);
+        assertTrue(credentialId.toString().startsWith("urn:uuid:"));
+    }
+
+    @Test
     public void issueFromTemplate_throws_whenTemplateClaimMissing() {
         CredentialConfigurationDTO config = mdocConfig();
         String templateJson = "{\"nameSpaces\":{\"org.iso.18013.5.1\":["

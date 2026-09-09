@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -29,9 +28,23 @@ public class WellKnownController {
     @Autowired
     private JwksService jwksService;
 
+    /**
+     * Default issuer metadata (backward compatible). Inji Wallet concatenates
+     * {@code credential_issuer_host + /.well-known/openid-credential-issuer}.
+     */
     @GetMapping(value = "/.well-known/openid-credential-issuer", produces = "application/json")
     public CredentialIssuerMetadataDTO getCredentialIssuerMetadata(
-            @RequestParam(value = "issuerId", required = false) String issuerId,
+            @RequestParam(name = "version", required = false, defaultValue = "latest") String version) {
+        return credentialConfigurationService.fetchCredentialIssuerMetadata(null, version);
+    }
+
+    /**
+     * Per-issuer OID4VCI metadata. Wallet host is {@code {domain}/{issuerId}}, so this is
+     * {@code GET /{issuerId}/.well-known/openid-credential-issuer}.
+     */
+    @GetMapping(value = "/{issuerId}/.well-known/openid-credential-issuer", produces = "application/json")
+    public CredentialIssuerMetadataDTO getIssuerCredentialIssuerMetadata(
+            @PathVariable String issuerId,
             @RequestParam(name = "version", required = false, defaultValue = "latest") String version) {
         return credentialConfigurationService.fetchCredentialIssuerMetadata(issuerId, version);
     }

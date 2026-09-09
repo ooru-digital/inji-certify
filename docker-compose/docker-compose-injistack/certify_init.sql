@@ -129,7 +129,7 @@ INSERT INTO certify.issuer (
     'did:web:8398-2405-201-1029-3025-e142-9ad3-e1f2-f543.ngrok-free.app',
     'http://certify:8090',
     '[{"name": "Farmer Issuer", "locale": "en"}]'::jsonb,
-    '["https://esignet-mock.collab.mosip.net"]'::jsonb,
+    '["https://collectible-dissentiently-arie.ngrok-free.dev"]'::jsonb,
     'CERTIFY_VC_SIGN_ED25519',
     'ED25519_SIGN',
     'Ed25519Signature2020',

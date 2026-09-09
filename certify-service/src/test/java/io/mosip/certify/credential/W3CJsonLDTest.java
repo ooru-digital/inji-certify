@@ -59,6 +59,9 @@ public class W3CJsonLDTest {
     @Mock
     private DIDDocumentUtil didDocumentUtil;
 
+    @Mock
+    private com.apicatalog.jsonld.loader.DocumentLoader documentLoader;
+
     @Before
     public void setUp() {
         Map<String, List<List<String>>> keyAliasMapper = new HashMap<>();
@@ -67,6 +70,7 @@ public class W3CJsonLDTest {
 
         ReflectionTestUtils.setField(w3cJsonLd, "proofGeneratorFactory", proofGeneratorFactory);
         ReflectionTestUtils.setField(w3cJsonLd, "didDocumentUtil", didDocumentUtil);
+        ReflectionTestUtils.setField(w3cJsonLd, "documentLoader", documentLoader);
         ReflectionTestUtils.setField(w3cJsonLd, "keyAliasMapper", keyAliasMapper);
         when(proofGeneratorFactory.getProofGenerator(any())).thenReturn(Optional.of(proofGenerator));
     }

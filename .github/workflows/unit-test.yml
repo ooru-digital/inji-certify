@@ -5,6 +5,12 @@ on:
     secrets:
       DISCORD_WEBHOOK:
         required: false
+      NEXUS_USERNAME:
+        required: true
+      NEXUS_PASSWORD:
+        required: true
+      NEXUS_URL:
+        required: true
 
     outputs:
       test_status:
@@ -374,9 +380,10 @@ jobs:
       # ------------------------------------------------
       # UPLOAD REPORT
       # ------------------------------------------------
-      - name: Upload Unit Test Report
+      - name: Upload Unit Test Report to Nexus
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-report
-          path: unit-test-report.txt
+        continue-on-error: true
+        run: |
+          curl -sS -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
+            --upload-file unit-test-report.txt \
+            "${{ secrets.NEXUS_URL }}/repository/CredIssuer/reports/${{ github.event.repository.name }}/${{ github.run_id }}/unit-test-report.txt"

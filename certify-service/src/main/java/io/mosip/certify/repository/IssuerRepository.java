@@ -17,4 +17,8 @@ public interface IssuerRepository extends JpaRepository<Issuer, String> {
     boolean existsByIssuerId(String issuerId);
 
     Optional<Issuer> findByDidUrl(String didUrl);
+
+    Optional<Issuer> findByCredentialIssuerUrlAndStatus(String credentialIssuerUrl, String status);
+
+    Optional<Issuer> findByIdentifierAndStatus(String identifier, String status);
 }

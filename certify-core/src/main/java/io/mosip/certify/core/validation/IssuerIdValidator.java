@@ -26,4 +26,8 @@ public final class IssuerIdValidator {
         String normalized = normalize(issuerId);
         return normalized != null && normalized.matches(IssuerConstants.ISSUER_ID_PATTERN);
     }
+
+    public static boolean isReserved(String issuerId) {
+        return IssuerConstants.isReservedIssuerId(normalize(issuerId));
+    }
 }

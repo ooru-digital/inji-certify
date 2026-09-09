@@ -16,28 +16,28 @@ services:
       - "5433:5432"
 
   certify:
-    image: inji-certify-with-plugins-mdl:0.14.0-prod-latest-5
+    image: inji-certify-with-plugins-mdl:0.14.0-prod-latest-8
     user: root
     ports:
       - 8090:8090
     environment:
       - container_user=mosip
-      - active_profile_env=default, csvdp-farmer
+      # Wallet OpenID4VCI (CredIssuer proxy) + W3C /vc-api. csvdp-farmer / mock-mdl profiles are unused here.
+      - active_profile_env=default,credissuer
       - SPRING_CONFIG_NAME=certify
       - SPRING_CONFIG_LOCATION=/home/mosip/config/
       - enable_certify_artifactory=false
       - download_hsm_client=false
-      - mosip_certify_domain_url=https://collectible-dissentiently-arie.ngrok-free.dev
+      - mosip_certify_domain_url=https://collectible-dissentiently-arie.ngrok-free.dev/certify
     volumes:
       - ./config/certify-default.properties:/home/mosip/config/certify-default.properties
-      - ./config/certify-csvdp-farmer.properties:/home/mosip/config/certify-csvdp-farmer.properties
-      - ./config/certify-mock-mdl.properties:/home/mosip/config/certify-mock-mdl.properties
+      - ./config/certify-credissuer.properties:/home/mosip/config/certify-credissuer.properties
       - ./data/CERTIFY_PKCS12:/home/mosip/CERTIFY_PKCS12
-      # This can be disabled if one uses plugins included in inji-certify-with-plugins docker image.
-      #      - ./loader_path/certify/:/home/mosip/additional_jars/
-      # modify the below file to change the identity fields in the VC
-      - ./config/farmer_identity_data.csv:/home/mosip/config/farmer_identity_data.csv
-      - ./config/vp_request_config.json:/home/mosip/config/vp_request_config.json
+      # Image loader.path is /home/inji/additional_jars/ (not /home/mosip).
+      # Overlay the stock sunbird plugin with the CredIssuer proxy JAR (same class name).
+      - ./loader_path/certify/credissuer-certify-integration-impl-0.2.1.jar:/home/inji/additional_jars/sunbird-rc-certify-integration-impl.jar
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - network
     depends_on:
@@ -52,42 +52,43 @@ services:
       - ./config/mimoto-issuers-config.json:/config/server/mimoto-issuers-config.json
       - ./config/mimoto-trusted-verifiers.json:/config/server/mimoto-trusted-verifiers.json
       - ./config/credential-template.html:/config/server/credential-template.html
-      - ./config/vp_request_config.json:/config/server/vp_request_config.json
     networks:
       - network
     depends_on:
       - certify
 
 
-  # mimoto-service:
-  #   container_name: 'mimoto-service'
-  #   image: injistack/mimoto:0.21.0
-  #   user: root
-  #   ports:
-  #     - '8099:8099'
-  #   environment:
-  #     - container_user=mosip
-  #     - active_profile_env=default
-  #     - SPRING_CONFIG_NAME=mimoto
-  #     - SPRING_CONFIG_LOCATION=/home/mosip/
-  #     - SPRING_CLOUD_BOOTSTRAP_LOCATION=/home/mosip/mimoto-bootstrap.properties
-  #     - oidc_p12_password=xy4gh6swa2i
-  #     - WALLET_BINDING_PARTNER_API_KEY=dummywalletbindingpartnerapikey
-  #     - SPRING_DATASOURCE_URL=jdbc:postgresql://database:5432/inji_mimoto
-  #     - POSTGRES_USER=postgres
-  #     - POSTGRES_PASSWORD=postgres
-  #     - GOOGLE_OAUTH_CLIENT_ID=clientId
-  #     - GOOGLE_OAUTH_CLIENT_SECRET=clientSecret
-  #   networks:
-  #     - network
-  #   volumes:
-  #     - ./config/mimoto-default.properties:/home/mosip/mimoto-default.properties
-  #     - ./config/mimoto-bootstrap.properties:/home/mosip/mimoto-bootstrap.properties
-  #     - ./config/mimoto-issuers-config.json:/home/mosip/mimoto-issuers-config.json
-  #     - ./config/mimoto-trusted-verifiers.json:/home/mosip/mimoto-trusted-verifiers.json
-  #     - ./certs/oidckeystore.p12:/home/mosip/certs/oidckeystore.p12
-  #   depends_on:
-  #     - database
+  mimoto-service:
+    container_name: 'mimoto-service'
+    image: injistack/mimoto:0.21.0
+    user: root
+    ports:
+      - '8099:8099'
+    environment:
+      - container_user=mosip
+      - active_profile_env=default
+      - SPRING_CONFIG_NAME=mimoto
+      - SPRING_CONFIG_LOCATION=/home/mosip/
+      - SPRING_CLOUD_BOOTSTRAP_LOCATION=/home/mosip/mimoto-bootstrap.properties
+      - oidc_p12_password=5YBx6QT2wbY8Ls6w
+      - WALLET_BINDING_PARTNER_API_KEY=dummywalletbindingpartnerapikey
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://database:5432/inji_mimoto
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - GOOGLE_OAUTH_CLIENT_ID=clientId
+      - GOOGLE_OAUTH_CLIENT_SECRET=clientSecret
+    networks:
+      - network
+    volumes:
+      - ./config/mimoto-default.properties:/home/mosip/mimoto-default.properties
+      - ./config/mimoto-bootstrap.properties:/home/mosip/mimoto-bootstrap.properties
+      - ./config/mimoto-issuers-config.json:/home/mosip/mimoto-issuers-config.json
+      - ./config/mimoto-trusted-verifiers.json:/home/mosip/mimoto-trusted-verifiers.json
+      - ./certs/oidckeystore.p12:/home/mosip/certs/oidckeystore.p12
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - database
 
   # inji-web:
   #   container_name: 'inji-web'

@@ -7,6 +7,7 @@
 - [Issuer Flow (OID4VCI)](./multi-issuer/Issuer-Flow.md)
 - [Gap Analysis](./multi-issuer/Gap-Analysis.md)
 - [Implementation Plan](./multi-issuer/Implementation-Plan.md)
+- [Proof `aud` issuer resolution](./multi-issuer/Proof-Aud-Issuer-Resolution.md)
 
 ## General
 

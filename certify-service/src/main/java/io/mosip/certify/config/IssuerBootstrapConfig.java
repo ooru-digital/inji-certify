@@ -7,6 +7,7 @@ import io.mosip.certify.mdoc.MdocPkiRefs;
 import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.IssuerMapper;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,7 @@ import java.util.*;
 
 @Slf4j
 @Component
-@Order(100)
+@Order(100) // After AppConfig (@Order(1)): generateECSignKey needs the KeyManager ROOT key
 public class IssuerBootstrapConfig implements ApplicationRunner {
 
     @Autowired
@@ -38,9 +39,6 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
 
     @Value("${mosip.certify.identifier}")
     private String identifier;
-
-    @Value("${server.servlet.path}")
-    private String servletPath;
 
     @Value("${mosip.certify.data-provider-plugin.did-url}")
     private String didUrl;
@@ -62,7 +60,8 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
         log.info("Seeding default issuer from application properties");
         Issuer issuer = new Issuer();
         issuer.setIssuerId(IssuerConstants.DEFAULT_ISSUER_ID);
-        issuer.setCredentialIssuerUrl(domainUrl + servletPath);
+        issuer.setCredentialIssuerUrl(IssuerUrlUtil.buildCredentialIssuerUrl(
+                domainUrl, IssuerConstants.DEFAULT_ISSUER_ID));
         issuer.setIdentifier(identifier);
         issuer.setDidUrl(didUrl);
         issuer.setDisplay(mapDisplayFromProperties());
@@ -79,7 +78,8 @@ public class IssuerBootstrapConfig implements ApplicationRunner {
     }
 
     private void updateDefaultIssuerFromProperties(Issuer issuer) {
-        issuer.setCredentialIssuerUrl(domainUrl + servletPath);
+        issuer.setCredentialIssuerUrl(IssuerUrlUtil.buildCredentialIssuerUrl(
+                domainUrl, IssuerConstants.DEFAULT_ISSUER_ID));
         issuer.setIdentifier(identifier);
         issuer.setDidUrl(didUrl);
         if (issuer.getDisplay() == null || issuer.getDisplay().isEmpty()) {
