@@ -52,7 +52,7 @@ jobs:
     secrets:
       registry_username: ${{ secrets.DOCKERHUB_USERNAME }}
       registry_password: ${{ secrets.DOCKERHUB_TOKEN }}
-      DISCORD_PRODUCTION_BUILDS_URL: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
       NEXUS_URL: ${{ secrets.NEXUS_URL }}
@@ -86,12 +86,15 @@ jobs:
       unit_test_status: ${{ needs.trigger-integration-tests.outputs.test_status }}
       trivy_status: ${{ needs.container_pipeline.outputs.trivy_status }}
       deployment_configs_ref: production-main
+      use_aws_auth: false
+      use_custom_kubeconfig: true
+      kubeconfig_path: "/home/ubuntu/.kube/prod.conf"
 
     secrets:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
       deployment_configs_token: ${{ secrets.DEPLOYMENT_CONFIGS_TOKEN }}
-      discord_webhook: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_PRODUCTION_BUILDS_URL }}
       NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
       NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
       NEXUS_URL: ${{ secrets.NEXUS_URL }}

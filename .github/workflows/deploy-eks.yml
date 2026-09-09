@@ -56,6 +56,25 @@ on:
         type: string
         default: ""
 
+      # --- New Toggle Inputs for AWS vs Custom Kubeconfig ---
+      use_aws_auth:
+        description: "Set to true to use AWS IAM role authentication"
+        required: false
+        type: boolean
+        default: true
+
+      use_custom_kubeconfig:
+        description: "Set to true to use a custom kubeconfig file on the runner"
+        required: false
+        type: boolean
+        default: false
+
+      kubeconfig_path:
+        description: "Path to the custom kubeconfig file if use_custom_kubeconfig is true"
+        required: false
+        type: string
+        default: ""
+
     secrets:
       dockerhub_username:
         required: true
@@ -119,6 +138,7 @@ jobs:
       # Configure AWS credentials
       # ---------------------------------------------------------
       - name: Configure AWS credentials
+        if: ${{ inputs.use_aws_auth == true }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ inputs.aws_region }}
@@ -144,11 +164,28 @@ jobs:
       # ---------------------------------------------------------
       # Configure kubeconfig
       # ---------------------------------------------------------
-      - name: Configure kubeconfig
+      - name: Configure Kubeconfig (AWS vs Custom)
         run: |
-          aws eks update-kubeconfig \
-            --name "${{ inputs.eks_cluster_name }}" \
-            --region "${{ inputs.aws_region }}"
+          if [ "${{ inputs.use_custom_kubeconfig }}" = "true" ]; then
+            if [ -z "${{ inputs.kubeconfig_path }}" ]; then
+              echo "::error::use_custom_kubeconfig is true, but kubeconfig_path is empty!"
+              exit 1
+            fi
+            echo "Using custom kubeconfig path: ${{ inputs.kubeconfig_path }}"
+            echo "KUBECONFIG=${{ inputs.kubeconfig_path }}" >> $GITHUB_ENV
+          elif [ "${{ inputs.use_aws_auth }}" = "true" ]; then
+            if [ -z "${{ inputs.aws_region }}" ] || [ -z "${{ inputs.eks_cluster_name }}" ]; then
+              echo "::error::aws_region and eks_cluster_name are required when use_aws_auth is true!"
+              exit 1
+            fi
+            echo "Using AWS IAM role and updating kubeconfig via aws eks update-kubeconfig..."
+            aws eks update-kubeconfig \
+              --name "${{ inputs.eks_cluster_name }}" \
+              --region "${{ inputs.aws_region }}"
+          else
+            echo "::error::Neither AWS auth nor custom kubeconfig was selected!"
+            exit 1
+          fi
 
       # ---------------------------------------------------------
       # Verify EKS access
