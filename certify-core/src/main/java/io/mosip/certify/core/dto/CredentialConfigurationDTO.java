@@ -73,4 +73,6 @@ public class CredentialConfigurationDTO {
     private List<String> cryptographicBindingMethodsSupported;
 
     private Map<String, Object> proofTypesSupported;
+    @JsonProperty("issuerId")
+    private String issuerId;
 }

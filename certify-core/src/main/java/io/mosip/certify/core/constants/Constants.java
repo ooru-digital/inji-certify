@@ -38,6 +38,10 @@ public class Constants {
     public static final String NAMESPACES = "nameSpaces";
     public static final String DIGEST_ID = "digestID";
     public static final String VALIDITY_INFO = "validityInfo";
+    /** CBOR tag for embedded CBOR data item (tag 24) — MobileSecurityObjectBytes / IssuerSignedItemBytes. */
+    public static final int CBOR_TAG_ENCODED_CBOR = 24;
+    /** CBOR tag for COSE_Sign1_Tagged (RFC 9052); ISO 18013-5 issuerAuth must be untagged. */
+    public static final int CBOR_TAG_COSE_SIGN1 = 18;
     public static final String ELEMENT_IDENTIFIER = "elementIdentifier";
     public static final String ELEMENT_VALUE = "elementValue";
     public static final String __CBOR_TAG = "__cbor_tag";

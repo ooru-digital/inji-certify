@@ -2,6 +2,7 @@ package io.mosip.certify.services;
 
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
+import io.mosip.certify.core.constants.IssuerConstants;
 import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.dto.*;
 import io.mosip.certify.core.exception.CertifyException;
@@ -9,10 +10,13 @@ import io.mosip.certify.core.exception.CredentialConfigException;
 import io.mosip.certify.core.exception.CredentialConfigValidationException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.entity.attributes.Claims;
 import io.mosip.certify.repository.CredentialConfigRepository;
+import io.mosip.certify.repository.IssuerRepository;
 import io.mosip.certify.utils.CredentialConfigMapper;
 import io.mosip.certify.utils.CredentialConfigMetadataResolver;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import io.mosip.certify.validators.credentialconfigvalidators.CredentialConfigMetadataValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.LdpVcCredentialConfigValidator;
 import io.mosip.certify.validators.credentialconfigvalidators.MsoMdocCredentialConfigValidator;
@@ -43,6 +47,12 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
 
     @Autowired
     private CredentialConfigMapper credentialConfigMapper;
+
+    @Autowired
+    private IssuerResolver issuerResolver;
+
+    @Autowired
+    private IssuerRepository issuerRepository;
 
     @Value("${mosip.certify.domain.url}")
     private String credentialIssuer;
@@ -80,6 +90,10 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     @Value("#{${mosip.certify.credential-config.as-mapping:{}}}")
     private Map<String, String> authorizationServerMapping;
 
+    /** Comma-separated formats advertised on the well-known endpoint. Empty advertises every active configuration. */
+    @Value("${mosip.certify.credential-config.wellknown.supported-formats:ldp_vc}")
+    private String wellKnownSupportedFormats;
+
     private static final String CREDENTIAL_CONFIG_CACHE_NAME = "credentialConfig";
 
     // The algorithms an mso_mdoc issuer may sign with. Only ES256 is supported, as HAIP requires for
@@ -90,9 +104,18 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
 
     @Override
     public CredentialConfigResponse addCredentialConfiguration(CredentialConfigurationDTO credentialConfigurationDTO) {
+        Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(credentialConfigurationDTO.getIssuerId()));
+        credentialConfigurationDTO.setIssuerId(issuer.getIssuerId());
+        applyIssuerSigningKeys(credentialConfigurationDTO, issuer);
+        validateIssuerCredentialBinding(credentialConfigurationDTO, issuer);
+
         validateCredentialConfiguration(credentialConfigurationDTO, true);
 
         CredentialConfig credentialConfig = credentialConfigMapper.toEntity(credentialConfigurationDTO);
+        credentialConfig.setIssuerId(issuer.getIssuerId());
+        if (!StringUtils.hasText(credentialConfig.getDidUrl())) {
+            credentialConfig.setDidUrl(issuer.getDidUrl());
+        }
         validateAndApplyCredentialConfigMetadataAttributes(credentialConfigurationDTO, credentialConfig);
         return saveCredentialConfiguration(credentialConfig);
     }
@@ -107,6 +130,7 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         CredentialConfigResponse credentialConfigResponse = new CredentialConfigResponse();
         credentialConfigResponse.setId(savedConfig.getCredentialConfigKeyId());
         credentialConfigResponse.setStatus(savedConfig.getStatus());
+        credentialConfigResponse.setIssuerId(savedConfig.getIssuerId());
 
         return credentialConfigResponse;
     }
@@ -206,9 +230,77 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
                                 credentialConfig.getKeyManagerRefId() != null &&
                                 pair.getLast().equals(credentialConfig.getKeyManagerRefId()));
 
+        if (!isMatch && StringUtils.hasText(credentialConfig.getIssuerId())) {
+            isMatch = issuerRepository.findById(credentialConfig.getIssuerId())
+                    .map(issuer -> matchesIssuerSigningKeys(credentialConfig, issuer))
+                    .orElse(false);
+        }
+
         if (!isMatch) {
             throw new CertifyException(ErrorConstants.KEY_CHOOSER_APP_REF_NOT_FOUND, "No matching appId and refId found in the key chooser configuration.");
         }
+    }
+
+    private void applyIssuerSigningKeys(CredentialConfigurationDTO credentialConfig, Issuer issuer) {
+        // mso_mdoc signs with issuer Document Signer (mdocDs*), not LDP DID keys.
+        if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
+            return;
+        }
+        if (!StringUtils.hasText(issuer.getKeyManagerAppId())) {
+            return;
+        }
+        if (!IssuerConstants.DEFAULT_ISSUER_ID.equals(issuer.getIssuerId())) {
+            credentialConfig.setKeyManagerAppId(issuer.getKeyManagerAppId());
+            credentialConfig.setKeyManagerRefId(issuer.getKeyManagerRefId());
+            if (!StringUtils.hasText(credentialConfig.getSignatureAlgo())) {
+                credentialConfig.setSignatureAlgo(issuer.getSignatureAlgo());
+            }
+            if (!StringUtils.hasText(credentialConfig.getSignatureCryptoSuite())) {
+                credentialConfig.setSignatureCryptoSuite(issuer.getSignatureCryptoSuite());
+            }
+            return;
+        }
+        if (!StringUtils.hasText(credentialConfig.getKeyManagerAppId())) {
+            credentialConfig.setKeyManagerAppId(issuer.getKeyManagerAppId());
+            credentialConfig.setKeyManagerRefId(issuer.getKeyManagerRefId());
+            if (!StringUtils.hasText(credentialConfig.getSignatureAlgo())) {
+                credentialConfig.setSignatureAlgo(issuer.getSignatureAlgo());
+            }
+            if (!StringUtils.hasText(credentialConfig.getSignatureCryptoSuite())) {
+                credentialConfig.setSignatureCryptoSuite(issuer.getSignatureCryptoSuite());
+            }
+        }
+    }
+
+    private void validateIssuerCredentialBinding(CredentialConfigurationDTO credentialConfig, Issuer issuer) {
+        if (IssuerConstants.DEFAULT_ISSUER_ID.equals(issuer.getIssuerId())) {
+            return;
+        }
+        if (!issuer.getIssuerId().equals(credentialConfig.getIssuerId())) {
+            throw new CertifyException(ErrorConstants.CROSS_ISSUER_CONFIG_MISMATCH,
+                    "Credential configuration issuerId must match the target issuer: " + issuer.getIssuerId());
+        }
+        // mso_mdoc uses issuer mdoc DS/IACA PKI; do not require LDP keyManager* binding.
+        if (VCFormats.MSO_MDOC.equals(credentialConfig.getCredentialFormat())) {
+            return;
+        }
+        if (StringUtils.hasText(issuer.getKeyManagerAppId())
+                && !issuer.getKeyManagerAppId().equals(credentialConfig.getKeyManagerAppId())) {
+            throw new CertifyException(ErrorConstants.CROSS_ISSUER_CONFIG_MISMATCH,
+                    "keyManagerAppId must match the onboarded issuer signing keys");
+        }
+        if (StringUtils.hasText(issuer.getKeyManagerRefId())
+                && !issuer.getKeyManagerRefId().equals(credentialConfig.getKeyManagerRefId())) {
+            throw new CertifyException(ErrorConstants.CROSS_ISSUER_CONFIG_MISMATCH,
+                    "keyManagerRefId must match the onboarded issuer signing keys");
+        }
+    }
+
+    private boolean matchesIssuerSigningKeys(CredentialConfigurationDTO credentialConfig, Issuer issuer) {
+        return StringUtils.hasText(credentialConfig.getKeyManagerAppId())
+                && credentialConfig.getKeyManagerAppId().equals(issuer.getKeyManagerAppId())
+                && StringUtils.hasText(credentialConfig.getKeyManagerRefId())
+                && credentialConfig.getKeyManagerRefId().equals(issuer.getKeyManagerRefId());
     }
 
     /**
@@ -324,6 +416,14 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         return credentialConfig;
     }
 
+    @Override
+    public List<CredentialConfigurationDTO> listCredentialConfigurations(String issuerId) {
+        Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(issuerId));
+        return credentialConfigRepository.findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE).stream()
+                .map(credentialConfigMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
     /**
      * NOTE: Using @credentialCacheKeyGenerator.generateKeyFromCredentialConfigKeyId(#id) will cause
      * an additional database lookup for CredentialConfig by id within the key generator.
@@ -341,6 +441,16 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         }
 
         CredentialConfig credentialConfig = optional.get();
+        Issuer issuer = issuerResolver.resolve(credentialConfig.getIssuerId());
+        if (StringUtils.hasText(credentialConfigurationDTO.getIssuerId())
+                && !issuer.getIssuerId().equals(credentialConfigurationDTO.getIssuerId())) {
+            throw new CertifyException(ErrorConstants.CROSS_ISSUER_CONFIG_MISMATCH,
+                    "Cannot change issuerId for an existing credential configuration");
+        }
+        credentialConfigurationDTO.setIssuerId(issuer.getIssuerId());
+        applyIssuerSigningKeys(credentialConfigurationDTO, issuer);
+        validateIssuerCredentialBinding(credentialConfigurationDTO, issuer);
+
         credentialConfigMapper.updateEntityFromDto(credentialConfigurationDTO, credentialConfig);
 
         validateCredentialConfiguration(credentialConfigMapper.toDto(credentialConfig), false);
@@ -353,6 +463,7 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         CredentialConfigResponse credentialConfigResponse = new CredentialConfigResponse();
         credentialConfigResponse.setId(savedConfig.getCredentialConfigKeyId());
         credentialConfigResponse.setStatus(savedConfig.getStatus());
+        credentialConfigResponse.setIssuerId(savedConfig.getIssuerId());
 
         return credentialConfigResponse;
     }
@@ -383,14 +494,37 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
     }
 
     @Override
-    public CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata() {
-        List<CredentialConfig> credentialConfigList = credentialConfigRepository.findAll()
-                .stream()
-                .filter(config -> Constants.ACTIVE.equals(config.getStatus()))
-                .toList();
-
-        return buildMetadata(credentialConfigList);
+    public CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String issuerId) {
+        Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(issuerId));
+        return buildMetadata(activeConfigs(issuer), issuer);
     }
+
+    @Override
+    public CredentialIssuerMetadataDTO fetchWellKnownMetadata(String issuerId) {
+        Issuer issuer = issuerResolver.resolve(issuerResolver.resolveIssuerId(issuerId));
+        return buildMetadata(filterForWellKnown(activeConfigs(issuer)), issuer);
+    }
+
+    private List<CredentialConfig> activeConfigs(Issuer issuer) {
+        return credentialConfigRepository.findByIssuerIdAndStatus(issuer.getIssuerId(), Constants.ACTIVE);
+    }
+
+    private List<CredentialConfig> filterForWellKnown(List<CredentialConfig> credentialConfigList) {
+        if (!StringUtils.hasText(wellKnownSupportedFormats)) {
+            return credentialConfigList;
+        }
+        Set<String> allowedFormats = Arrays.stream(wellKnownSupportedFormats.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (allowedFormats.isEmpty()) {
+            return credentialConfigList;
+        }
+        return credentialConfigList.stream()
+                .filter(config -> allowedFormats.contains(config.getCredentialFormat()))
+                .collect(Collectors.toList());
+    }
+
 
     /**
      * Checks every active configuration once the application is up, so a stored configuration that cannot
@@ -420,7 +554,7 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         }
     }
 
-    private CredentialIssuerMetadataDTO buildMetadata(List<CredentialConfig> credentialConfigList) {
+    private CredentialIssuerMetadataDTO buildMetadata(List<CredentialConfig> credentialConfigList, Issuer issuer) {
         CredentialIssuerMetadataDTO credentialIssuerMetadata = new CredentialIssuerMetadataDTO();
         Map<String, CredentialConfigurationSupportedDTO> credentialConfigurationSupportedMap = new HashMap<>();
 
@@ -432,7 +566,7 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         }
 
         credentialIssuerMetadata.setCredentialConfigurationSupportedDTO(credentialConfigurationSupportedMap);
-        populateCommonMetadataFields(credentialIssuerMetadata);
+        populateCommonMetadataFields(credentialIssuerMetadata, issuer);
         return credentialIssuerMetadata;
     }
 
@@ -497,22 +631,39 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
         return coseAlg;
     }
 
-    private void populateCommonMetadataFields(CredentialIssuerMetadataDTO metadata) {
-        metadata.setCredentialIssuer(credentialIssuer);
-        metadata.setAuthorizationServers(resolveAuthorizationServers());
-        metadata.setCredentialEndpoint(buildCredentialEndpoint());
-        metadata.setDisplay(issuerDisplay);
-        if (allowCNonce) metadata.setNonceEndpoint(buildNonceEndpoint());
+    private void populateCommonMetadataFields(CredentialIssuerMetadataDTO metadata, Issuer issuer) {
+        metadata.setCredentialIssuer(issuer.getCredentialIssuerUrl());
+        metadata.setAuthorizationServers(resolveAuthorizationServers(issuer));
+        metadata.setCredentialEndpoint(IssuerUrlUtil.buildCredentialEndpoint(credentialIssuer, "latest"));
+        metadata.setDisplay(mapIssuerDisplay(issuer));
+        if (allowCNonce) metadata.setNonceEndpoint(IssuerUrlUtil.buildNonceEndpoint(credentialIssuer));
     }
 
-    private String buildNonceEndpoint() {
-        return credentialIssuer + servletPath + "/nonce";
+    private List<Map<String, Object>> mapIssuerDisplay(Issuer issuer) {
+        if (issuer.getDisplay() == null || issuer.getDisplay().isEmpty()) {
+            return issuerDisplay;
+        }
+        return issuer.getDisplay().stream()
+                .map(display -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("name", display.getName());
+                    map.put("locale", display.getLocale());
+                    return map;
+                })
+                .collect(Collectors.toList());
     }
 
-    private List<String> resolveAuthorizationServers() {
+    private List<String> resolveAuthorizationServers(Issuer issuer) {
         Set<String> allServers = new LinkedHashSet<>();
 
-        if (StringUtils.hasText(authUrl)) {
+        if (issuer.getAuthorizationServers() != null) {
+            issuer.getAuthorizationServers().stream()
+                    .filter(StringUtils::hasText)
+                    .map(String::trim)
+                    .forEach(allServers::add);
+        }
+
+        if (allServers.isEmpty() && StringUtils.hasText(authUrl)) {
             Arrays.stream(authUrl.split(","))
                     .map(String::trim)
                     .filter(StringUtils::hasText)
@@ -526,11 +677,11 @@ public class CredentialConfigurationServiceImpl implements CredentialConfigurati
                     .forEach(allServers::add);
         }
 
-        return new ArrayList<>(allServers);
-    }
+        if (allServers.isEmpty()) {
+            return Collections.singletonList(authUrl);
+        }
 
-    private String buildCredentialEndpoint() {
-        return credentialIssuer + servletPath + "/issuance/credential";
+        return new ArrayList<>(allServers);
     }
 
     private CredentialConfigurationSupportedDTO mapToSupportedDTO(CredentialConfig credentialConfig) {

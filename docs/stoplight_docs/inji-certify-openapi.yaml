@@ -1137,9 +1137,42 @@ paths:
     get:
       tags:
         - Well-known
-      summary: Issuer metadata
-      description: 'This endpoint provides metadata about the credential issuer and the supported credential configurations. The response structure adapts based on the version query parameter, allowing clients to discover issuer capabilities and supported credential types for different OID4VCI versions. The response will be as per the applicable OID4VCI specification, for e.g. for draft 13 of OID4VCI, the specification to be referred is https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-ID1.html#name-credential-issuer-metadata-p A credential configuration that cannot be advertised, for example an mso_mdoc configuration whose signing algorithm has no supported COSE equivalent, is left out of credential_configurations_supported and logged on the server; the other configurations are still returned. Such configurations are also reported in the log at startup.'
+      summary: Default issuer metadata
+      description: 'OID4VCI Credential Issuer Metadata for the default issuer. Inji Wallet concatenates credential_issuer_host + /.well-known/openid-credential-issuer. The response lists every active credential configuration owned by the default issuer in credential_configurations_supported. Spec: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html#section-12.2.2'
       operationId: getCredentialIssuerMetadata
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialIssuerMetadataDTO'
+  /{issuerId}/.well-known/openid-credential-issuer:
+    get:
+      tags:
+        - Well-known
+      summary: Per-issuer metadata
+      description: |
+        OID4VCI Credential Issuer Metadata for a specific issuer. Wallet credential_issuer_host is `{domain}/{issuerId}` (for example `https://host/certify/iiitb-ac`), so this path is `{issuerId}/.well-known/openid-credential-issuer`.
+        `credential_issuer` in the JSON equals that host. `credential_configurations_supported` lists every active credential template for this issuer only.
+      operationId: getIssuerCredentialIssuerMetadata
+      parameters:
+        - name: issuerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Issuer slug, for example iiitb-ac
+        - name: version
+          in: query
+          required: false
+          schema:
+            type: string
+            default: latest
+            enum:
+              - latest
+              - vd11
+              - vd12
       responses:
         '200':
           description: OK
@@ -1230,6 +1263,51 @@ paths:
           description: No matching records found.
         '400':
           description: Invalid search criteria provided.
+      servers:
+        - url: 'http://localhost:8090/v1/certify'
+          description: Generated server url
+  /vc-api/credentials/issue:
+    post:
+      tags:
+        - W3C VC API
+      summary: Issue signed verifiable credential (client credential engine)
+      description: |
+        Server-to-server issuance using an onboarded credential configuration and existing `vcTemplate`.
+        Request body follows VCALM Issue Credential shape (`credential` + `options`).
+        Client may send `@context`/`type`/`issuer` for spec alignment; Certify still renders those from the template/issuer.
+        Client `validFrom`/`validUntil` (when both present) are used when signing; otherwise `vc-expiry-duration` applies.
+        Requires `X-API-Key` and `mosip.certify.vc-api.enabled=true`.
+        Supports `ldp_vc` (JSON-LD VC) and `mso_mdoc` (base64url CBOR mdoc) based on the configuration's `credentialFormat`.
+        For `mso_mdoc`, production requires the issuer KeyManager Document Signer (`mdocDsAppId`).
+        Property-based DS is non-prod only (`mosip.certify.mdoc.allow-property-ds=true`).
+        Verifiers must install the issuer IACA as a trust anchor (ISO 18013-5); export via
+        `GET /issuers/{issuerId}/mdoc/iaca-certificate`. See docs/mDoc-IACA-Verifier-Trust.md.
+      operationId: vcApiIssueCredential
+      parameters:
+        - name: X-API-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VCApiIssueRequest'
+      responses:
+        '200':
+          description: Signed verifiable credential
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCApiIssueResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: Missing or invalid API key
+        '404':
+          description: Unknown credential configuration id
       servers:
         - url: 'http://localhost:8090/v1/certify'
           description: Generated server url
@@ -2833,3 +2911,75 @@ components:
           example: "abc123xyz"
       required:
         - c_nonce
+    VCApiIssueOptions:
+      type: object
+      required:
+        - credentialConfigurationId
+      properties:
+        credentialConfigurationId:
+          type: string
+          description: Active credential configuration key id (credentialConfigKeyId)
+    VCApiCredentialInput:
+      type: object
+      required:
+        - credentialSubject
+      properties:
+        '@context':
+          type: array
+          description: Accepted for VCALM shape; not used when signing (comes from vcTemplate)
+          items: {}
+        type:
+          type: array
+          description: Accepted for VCALM shape; not used when signing (comes from vcTemplate)
+          items:
+            type: string
+        issuer:
+          description: Accepted for VCALM shape; not used when signing (comes from issuer DID / template)
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+        id:
+          type: string
+          description: Optional credential id (VCALM shape)
+        validFrom:
+          type: string
+          description: |
+            Optional ISO-8601 start of validity. When both validFrom and validUntil are set,
+            Certify uses them when signing; otherwise falls back to vc-expiry-duration.
+          example: '2026-07-24T06:30:00.000Z'
+        validUntil:
+          type: string
+          description: Optional ISO-8601 end of validity (must be after validFrom when both are set)
+          example: '2031-07-24T06:30:00.000Z'
+        credentialSubject:
+          type: object
+          additionalProperties: true
+          description: Claim values matching vcTemplate Velocity placeholders
+    VCApiIssueRequest:
+      type: object
+      required:
+        - credential
+        - options
+      properties:
+        credential:
+          $ref: '#/components/schemas/VCApiCredentialInput'
+        options:
+          $ref: '#/components/schemas/VCApiIssueOptions'
+    VCApiIssueResponse:
+      type: object
+      properties:
+        format:
+          type: string
+          description: Issued credential format (`ldp_vc` or `mso_mdoc`)
+          enum:
+            - ldp_vc
+            - mso_mdoc
+        verifiableCredential:
+          description: |
+            Signed credential. For `ldp_vc` this is a JSON object (LDP VC with proof).
+            For `mso_mdoc` this is a base64url-encoded CBOR IssuerSigned mdoc string.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string

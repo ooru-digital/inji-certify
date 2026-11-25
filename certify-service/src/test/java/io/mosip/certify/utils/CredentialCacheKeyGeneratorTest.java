@@ -48,7 +48,7 @@ public class CredentialCacheKeyGeneratorTest {
                 .thenReturn(Optional.of(config));
 
         String key = generator.generateKeyFromCredentialConfigKeyId("k");
-        assertEquals(VCFormats.DC_SD_JWT + "::" + "MyVct", key);
+        assertEquals("default::" + VCFormats.DC_SD_JWT + "::" + "MyVct", key);
     }
 
     @Test
@@ -61,6 +61,6 @@ public class CredentialCacheKeyGeneratorTest {
                 .thenReturn(Optional.of(config));
 
         String key = generator.generateKeyFromCredentialConfigKeyId("k");
-        assertEquals("MockType::https://example.org/ctx::" + VCFormats.LDP_VC, key);
+        assertEquals("default::MockType::https://example.org/ctx::" + VCFormats.LDP_VC, key);
     }
 }

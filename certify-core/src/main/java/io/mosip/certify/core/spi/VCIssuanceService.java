@@ -15,4 +15,6 @@ public interface VCIssuanceService {
     <T> CredentialResponse<T> getCredential(CredentialRequest credentialRequest);
 
     Map<String, Object> getDIDDocument();
+
+    Map<String, Object> getDIDDocument(String issuerId);
 }

@@ -5,6 +5,7 @@
 \ir ddl/certify-key_store.sql
 \ir ddl/certify-ca_cert_store.sql
 \ir ddl/certify-rendering_template.sql
+\ir ddl/certify-issuer.sql
 \ir ddl/certify-credential_config.sql
 \ir ddl/certify-status_list_credential.sql
 \ir ddl/certify-ledger.sql

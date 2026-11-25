@@ -123,8 +123,9 @@ class SdJwtCredentialConfigValidatorTest {
         CredentialConfigurationDTO config = new CredentialConfigurationDTO();
         config.setCredentialFormat("format");
         config.setSdJwtVct("vctValue");
+        config.setIssuerId("farmer");
         CredentialConfigRepository repo = Mockito.mock(CredentialConfigRepository.class);
-        Mockito.when(repo.findByCredentialFormatAndSdJwtVct("format", "vctValue"))
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndSdJwtVct("farmer", "format", "vctValue"))
                 .thenReturn(Optional.of(new CredentialConfig()));
         assertTrue(SdJwtCredentialConfigValidator.isConfigAlreadyPresent(config, repo));
     }
@@ -135,7 +136,7 @@ class SdJwtCredentialConfigValidatorTest {
         config.setCredentialFormat("format");
         config.setSdJwtVct("vctValue");
         CredentialConfigRepository repo = Mockito.mock(CredentialConfigRepository.class);
-        Mockito.when(repo.findByCredentialFormatAndSdJwtVct("format", "vctValue"))
+        Mockito.when(repo.findByIssuerIdAndCredentialFormatAndSdJwtVct("default", "format", "vctValue"))
                 .thenReturn(Optional.empty());
         assertFalse(SdJwtCredentialConfigValidator.isConfigAlreadyPresent(config, repo));
     }

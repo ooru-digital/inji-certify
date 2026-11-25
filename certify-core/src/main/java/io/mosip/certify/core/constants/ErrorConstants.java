@@ -89,6 +89,8 @@ public class ErrorConstants {
     public static final String UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type";
     public static final String UNKNOWN_CLAIMS = "unknown_claims";
     public static final String INVALID_EXPIRY_RANGE = "invalid_expiry_range";
+    /** Client supplied only one of validFrom/validUntil, or an unparseable datetime. */
+    public static final String INVALID_CREDENTIAL_VALIDITY = "invalid_credential_validity";
     public static final String INVALID_OFFER_ID_FORMAT = "invalid_offer_id_format";
     public static final String AUTHORIZATION_SERVER_DISCOVERY_FAILED = "authorization_server_discovery_failed";
     public static final String INVALID_AUTHORIZATION_SERVER = "invalid_authorization_server";
@@ -96,4 +98,22 @@ public class ErrorConstants {
     public static final String INVALID_CREDENTIAL_REQUEST = "invalid_credential_request";
     public static final String INVALID_DPOP_PROOF = "invalid_dpop_proof";
     public static final String SERVER_ERROR = "server_error";
+    public static final String INVALID_ISSUER_ID = "invalid_issuer_id";
+    public static final String ISSUER_NOT_FOUND = "issuer_not_found";
+    public static final String ISSUER_ALREADY_EXISTS = "issuer_already_exists";
+    public static final String ISSUER_INACTIVE = "issuer_inactive";
+    public static final String INVALID_ISSUER_SIGNING_CONFIG = "invalid_issuer_signing_config";
+    public static final String INVALID_DID_URL = "invalid_did_url";
+    public static final String ISSUER_KEY_GENERATION_FAILED = "issuer_key_generation_failed";
+    public static final String CROSS_ISSUER_CONFIG_MISMATCH = "cross_issuer_config_mismatch";
+    public static final String MDOC_DS_KEY_NOT_CONFIGURED = "mdoc_ds_key_not_configured";
+    public static final String MDOC_DS_KEY_INVALID = "mdoc_ds_key_invalid";
+    public static final String MDOC_LOCAL_COSE_SIGN_FAILED = "mdoc_local_cose_sign_failed";
+    public static final String MDOC_DOCTYPE_REQUIRED = "mdoc_doctype_required";
+    public static final String MDOC_PKI_PROVISIONING_FAILED = "mdoc_pki_provisioning_failed";
+    public static final String MDOC_DS_ROTATION_FAILED = "mdoc_ds_rotation_failed";
+    /** Issuer lacks KeyManager Document Signer refs and property-DS fallback is disabled. */
+    public static final String MDOC_ISSUER_DS_NOT_CONFIGURED = "mdoc_issuer_ds_not_configured";
+    /** Issuer lacks KeyManager IACA refs needed to export the trust anchor. */
+    public static final String MDOC_IACA_NOT_CONFIGURED = "mdoc_iaca_not_configured";
 }

@@ -16,7 +16,7 @@
     * Configure `mosip.certify.domain.url`, `mosip.certify.identifier`, `mosip.certify.authn.issuer-uri`, `mosip.certify.authn.jwk-set-uri`, `mosip.certify.authn.allowed-audiences` appropriately as per the Authorization service and Certify URI.
     * Configure your Verifiable Credential types, scopes and other well-known attributes via the `/credential-configurations` API (stored in the `credential_config` table). Refer to [Credential_Issuer_Configuration.md](./Credential_Issuer_Configuration.md) for details.
     * Appropriately configure the `mosip.certify.authn.allowed-audiences` to allowed audiences such that it matches with the AuthZ token when the Credential issue request is made to Certify.
-6. (required if Mobile driving license configured) Onboard issuer key and certificate data into property `mosip.certify.mock.mdoc.issuer-key-cert` using the creation script.
+6. (required if Mobile driving license configured without issuer KeyManager DS) Set `mosip.certify.mdoc.allow-property-ds=true` and onboard DS material into `mosip.certify.mock.mdoc.issuer-key-cert` using the creation script. For production-like local flow, onboard an issuer so KeyManager provisions IACA/DS instead.
 7. Perform Authentication & VC Issuance to see if the Certify & AuthZ stack is working apprpriately. Look out for the Postman collections referred to in the main README.md of this project.
    * Use the **Inji Certify Pre Auth Code** collection located at `docs/postman_collections/pre_authorization_code_flow/inji-certify-pre-auth-code.postman_collection.json` to test the "Credential Offer with Pre Authorization Code Flow".
 

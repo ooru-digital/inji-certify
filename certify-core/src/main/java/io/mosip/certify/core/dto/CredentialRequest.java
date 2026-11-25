@@ -18,6 +18,9 @@ public class CredentialRequest {
     @JsonProperty("credential_configuration_id")
     private String credentialConfigId;
 
+    @JsonProperty("issuerId")
+    private String issuerId;
+
     /**
      * REQUIRED (in this implementation).
      * JSON object containing proof(s) of possession of the key material the issued Credential shall be bound to.

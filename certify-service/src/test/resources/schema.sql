@@ -106,3 +106,25 @@ CREATE TABLE IF NOT EXISTS credential_config (
     upd_dtimes TIMESTAMP,
     CONSTRAINT pk_config_id PRIMARY KEY (context, credential_type, credential_format)
 );
+
+
+CREATE TABLE IF NOT EXISTS issuer (
+    issuer_id               VARCHAR(64)   NOT NULL,
+    credential_issuer_url   VARCHAR(512)  NOT NULL,
+    did_url                 VARCHAR(512)  NOT NULL,
+    identifier              VARCHAR(512)  NOT NULL,
+    display                 JSON         NOT NULL,
+    authorization_servers   JSON,
+    key_manager_app_id      VARCHAR(36),
+    key_manager_ref_id      VARCHAR(128),
+    signature_crypto_suite  VARCHAR(64),
+    signature_algo          VARCHAR(32),
+    mdoc_iaca_app_id        VARCHAR(36),
+    mdoc_iaca_ref_id        VARCHAR(128),
+    mdoc_ds_app_id          VARCHAR(36),
+    mdoc_ds_ref_id          VARCHAR(128),
+    status                  VARCHAR(16)   NOT NULL DEFAULT 'active',
+    cr_dtimes               TIMESTAMP     NOT NULL DEFAULT NOW(),
+    upd_dtimes              TIMESTAMP,
+    CONSTRAINT pk_issuer_id PRIMARY KEY (issuer_id)
+);

@@ -20,11 +20,15 @@ import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
 import com.nimbusds.jwt.proc.DefaultJWTProcessor;
+import io.mosip.certify.config.IssuerContext;
 import io.mosip.certify.core.constants.Constants;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.exception.InvalidRequestException;
+import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.utils.IssuerUrlUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -43,6 +47,57 @@ public class JwtProofValidator implements ProofValidator {
 
     @Value("${mosip.certify.identifier}")
     private String credentialIdentifier;
+
+    @Value("${mosip.certify.domain.url:}")
+    private String domainUrl;
+
+    @Autowired
+    private IssuerContext issuerContext;
+
+    /**
+     * Wallet proof {@code aud} is {@code credential_issuer_host} ({@code {domain}/{issuerId}}).
+     * Stored {@code issuer.identifier} may still be the global domain URL.
+     */
+    private String resolveExpectedAudience(List<String> jwtAudiences) {
+        Set<String> accepted = acceptedAudiences();
+        if (jwtAudiences != null) {
+            for (String aud : jwtAudiences) {
+                if (StringUtils.isBlank(aud)) {
+                    continue;
+                }
+                if (accepted.contains(aud) || accepted.contains(trimSlash(aud))) {
+                    return aud;
+                }
+            }
+        }
+        return accepted.isEmpty() ? credentialIdentifier : accepted.iterator().next();
+    }
+
+    private Set<String> acceptedAudiences() {
+        Set<String> accepted = new LinkedHashSet<>();
+        addAudience(accepted, credentialIdentifier);
+        Issuer current = issuerContext != null ? issuerContext.getCurrent() : null;
+        if (current != null) {
+            addAudience(accepted, current.getIdentifier());
+            addAudience(accepted, current.getCredentialIssuerUrl());
+            if (StringUtils.isNotBlank(domainUrl) && StringUtils.isNotBlank(current.getIssuerId())) {
+                addAudience(accepted, IssuerUrlUtil.buildCredentialIssuerUrl(domainUrl, current.getIssuerId()));
+            }
+        }
+        return accepted;
+    }
+
+    private void addAudience(Set<String> accepted, String value) {
+        if (StringUtils.isBlank(value)) {
+            return;
+        }
+        accepted.add(value.trim());
+        accepted.add(trimSlash(value));
+    }
+
+    private String trimSlash(String url) {
+        return url == null ? "" : url.trim().replaceAll("/+$", "");
+    }
 
     @Override
     public String getProofType() {
@@ -89,10 +144,9 @@ public class JwtProofValidator implements ProofValidator {
             }
 
             JWTClaimsSet.Builder proofJwtClaimsBuilder = new JWTClaimsSet.Builder()
-                    .audience(credentialIdentifier);
+                    .audience(resolveExpectedAudience(jwt.getJWTClaimsSet().getAudience()));
             if (!StringUtils.isEmpty(cNonce)) {
-                proofJwtClaimsBuilder = proofJwtClaimsBuilder
-                        .claim("nonce", cNonce);
+                proofJwtClaimsBuilder = proofJwtClaimsBuilder.claim("nonce", cNonce);
             }
 
             // if the proof contains issuer claim, then it should match with the client id ref: https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0-ID1.html#section-7.2.1.1-2.2.2.1

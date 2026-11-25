@@ -6,6 +6,8 @@ import io.mosip.certify.core.constants.SignatureAlg;
 import io.mosip.certify.core.dto.CertificateResponseDTO;
 import io.mosip.certify.core.exception.CertifyException;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.entity.attributes.MetaDataDisplay;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.kernel.keymanagerservice.dto.AllCertificatesDataResponseDto;
 import io.mosip.kernel.keymanagerservice.dto.CertificateDataResponseDto;
@@ -20,10 +22,12 @@ import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.when;
 
@@ -248,6 +252,49 @@ class DIDDocumentUtilTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void generateDIDDocument_skipsMsoMdocConfig_withEd25519LdpConfig() {
+        String didUrl = "did:web:example.com:issuers:test";
+        String issuerId = "test-issuer";
+        String ed25519AppId = "CERTIFY_ISSUER_TEST_ED25519";
+        String ed25519RefId = "ED25519_SIGN";
+        String ed25519Cert = "-----BEGIN CERTIFICATE-----\nMIIC2jCCAcKgAwIBAgIInbzaZeSXQqEwDQYJKoZIhvcNAQELBQAwgYsxCzAJBgNV\nBAYTAklOMQswCQYDVQQIDAJLQTESMBAGA1UEBwwJQkFOR0FMT1JFMQ4wDAYDVQQK\nDAVJSUlUQjEXMBUGA1UECwwORVhBTVBMRS1DRU5URVIxMjAwBgNVBAMMKXd3dy5l\neGFtcGxlLmNvbSAoQ0VSVElGWV9WQ19TSUdOX0VEMjU1MTkpMB4XDTI0MTIyOTA4\nNDY1OFoXDTI3MTIyOTA4NDY1OFowgYYxCzAJBgNVBAYTAklOMQswCQYDVQQIDAJL\nQTESMBAGA1UEBwwJQkFOR0FMT1JFMQ4wDAYDVQQKDAVJSUlUQjEXMBUGA1UECwwO\nRVhBTVBMRS1DRU5URVIxLTArBgNVBAMMJENFUlRJRllfVkNfU0lHTl9FRDI1NTE5\nLUVEMjU1MTlfU0lHTjAqMAUGAytlcAMhAOX8AiOEEHfyJRKJsjshaJps736mS4zS\ncZVcdUpZpEbxoz8wPTAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBSVZaEpMbDVgrAy\nZP0ZlwMMXzhS9jAOBgNVHQ8BAf8EBAMCBSAwDQYJKoZIhvcNAQELBQADggEBAAJ4\nPZb+6A5Q5Z2X18B3PLNLs5It2UTu+qL8PhQyoVpEoq44Efl+10qaAiBp7l66sYcf\nsYVhREnJaBACqsEy5cFTZ7j+7Q0GhuepnkYTS9n8DwlOgZgPU0tBBwthbixwFyME\ne2VdtuhyuVnGK8+W6VWMg+lQGyQwPgrzAf6L81bADn+cW6tIVoYd4uuNfoXeM0pL\nTtKMGEyRVdx3Q+wcLEGZXCTYPkUgf+mq8kqf9dCDdDgblPU891msZpg0KGRkLD28\nPF7FPhK0Hq4DzwfhdpiQMe7W19FyH/IXRprJi8LKx4V9Y/rBAvR2loLR0PwVl+VB\nB55c6EluZ6hn9xuwr9w=\n-----END CERTIFICATE-----\n";
+
+        CredentialConfig ldpConfig = new CredentialConfig();
+        ldpConfig.setCredentialFormat("ldp_vc");
+        ldpConfig.setKeyManagerAppId(ed25519AppId);
+        ldpConfig.setKeyManagerRefId(ed25519RefId);
+        ldpConfig.setSignatureAlgo(JWSAlgorithm.EdDSA);
+        ldpConfig.setStatus("active");
+
+        // Mismatched mdoc row (ES256 + Ed25519 keys) must not break DID generation.
+        CredentialConfig mdocConfig = new CredentialConfig();
+        mdocConfig.setCredentialFormat("mso_mdoc");
+        mdocConfig.setKeyManagerAppId(ed25519AppId);
+        mdocConfig.setKeyManagerRefId(ed25519RefId);
+        mdocConfig.setSignatureAlgo(JWSAlgorithm.ES256);
+        mdocConfig.setStatus("active");
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq(issuerId), eq("active")))
+                .thenReturn(List.of(ldpConfig, mdocConfig));
+
+        CertificateDataResponseDto certDto = new CertificateDataResponseDto();
+        certDto.setCertificateData(ed25519Cert);
+        certDto.setKeyId("ed25519-kid");
+        when(keymanagerService.getAllCertificates(eq(ed25519AppId), eq(Optional.of(ed25519RefId))))
+                .thenReturn(new AllCertificatesDataResponseDto(new CertificateDataResponseDto[]{certDto}));
+
+        Map<String, Object> didDocument = didDocumentUtil.generateDIDDocument(didUrl, issuerId);
+
+        assertEquals(didUrl, didDocument.get("id"));
+        List<Map<String, Object>> verificationMethods =
+                (List<Map<String, Object>>) didDocument.get("verificationMethod");
+        assertEquals(1, verificationMethods.size());
+        assertEquals("Ed25519VerificationKey2020", verificationMethods.get(0).get("type"));
+        assertEquals(didUrl + "#ed25519-kid", verificationMethods.get(0).get("id"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void testGenerateDIDDocumentAddsSecp256k1ContextAtTopLevel() {
         CredentialConfig config = new CredentialConfig();
         config.setKeyManagerAppId("ec-app");
@@ -271,5 +318,47 @@ class DIDDocumentUtilTest {
                 "Top-level @context must include the secp256k1 security context");
         assertFalse(verificationMethods.get(0).containsKey("@context"),
                 "@context must not appear inside verificationMethod");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void generateDIDDocument_fromIssuerKeys_withoutCredentialConfigs() {
+        String didUrl = "did:web:example.com:iiitb";
+        String ed25519AppId = "CERTIFY_ISSUER_IIITB_ED25519";
+        String ed25519RefId = "ED25519_SIGN";
+        String ed25519Cert = "-----BEGIN CERTIFICATE-----\nMIIC2jCCAcKgAwIBAgIInbzaZeSXQqEwDQYJKoZIhvcNAQELBQAwgYsxCzAJBgNV\nBAYTAklOMQswCQYDVQQIDAJLQTESMBAGA1UEBwwJQkFOR0FMT1JFMQ4wDAYDVQQK\nDAVJSUlUQjEXMBUGA1UECwwORVhBTVBMRS1DRU5URVIxMjAwBgNVBAMMKXd3dy5l\neGFtcGxlLmNvbSAoQ0VSVElGWV9WQ19TSUdOX0VEMjU1MTkpMB4XDTI0MTIyOTA4\nNDY1OFoXDTI3MTIyOTA4NDY1OFowgYYxCzAJBgNVBAYTAklOMQswCQYDVQQIDAJL\nQTESMBAGA1UEBwwJQkFOR0FMT1JFMQ4wDAYDVQQKDAVJSUlUQjEXMBUGA1UECwwO\nRVhBTVBMRS1DRU5URVIxLTArBgNVBAMMJENFUlRJRllfVkNfU0lHTl9FRDI1NTE5\nLUVEMjU1MTlfU0lHTjAqMAUGAytlcAMhAOX8AiOEEHfyJRKJsjshaJps736mS4zS\ncZVcdUpZpEbxoz8wPTAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBSVZaEpMbDVgrAy\nZP0ZlwMMXzhS9jAOBgNVHQ8BAf8EBAMCBSAwDQYJKoZIhvcNAQELBQADggEBAAJ4\nPZb+6A5Q5Z2X18B3PLNLs5It2UTu+qL8PhQyoVpEoq44Efl+10qaAiBp7l66sYcf\nsYVhREnJaBACqsEy5cFTZ7j+7Q0GhuepnkYTS9n8DwlOgZgPU0tBBwthbixwFyME\ne2VdtuhyuVnGK8+W6VWMg+lQGyQwPgrzAf6L81bADn+cW6tIVoYd4uuNfoXeM0pL\nTtKMGEyRVdx3Q+wcLEGZXCTYPkUgf+mq8kqf9dCDdDgblPU891msZpg0KGRkLD28\nPF7FPhK0Hq4DzwfhdpiQMe7W19FyH/IXRprJi8LKx4V9Y/rBAvR2loLR0PwVl+VB\nB55c6EluZ6hn9xuwr9w=\n-----END CERTIFICATE-----\n";
+
+        Issuer issuer = new Issuer();
+        issuer.setIssuerId("iiitb");
+        issuer.setDidUrl(didUrl);
+        issuer.setKeyManagerAppId(ed25519AppId);
+        issuer.setKeyManagerRefId(ed25519RefId);
+        issuer.setSignatureAlgo(JWSAlgorithm.EdDSA);
+        MetaDataDisplay display = new MetaDataDisplay();
+        display.setName("IIITB Issuer");
+        issuer.setDisplay(List.of(display));
+
+        when(credentialConfigRepository.findByIssuerIdAndStatus(eq("iiitb"), eq("active")))
+                .thenReturn(Collections.emptyList());
+
+        CertificateDataResponseDto certDto = new CertificateDataResponseDto();
+        certDto.setCertificateData(ed25519Cert);
+        certDto.setKeyId("ed25519-kid");
+        when(keymanagerService.getAllCertificates(eq(ed25519AppId), eq(Optional.of(ed25519RefId))))
+                .thenReturn(new AllCertificatesDataResponseDto(new CertificateDataResponseDto[]{certDto}));
+
+        Map<String, Object> didDocument = didDocumentUtil.generateDIDDocument(issuer);
+
+        assertEquals(didUrl, didDocument.get("id"));
+        assertEquals(List.of("IIITB Issuer"), didDocument.get("alsoKnownAs"));
+        List<Map<String, Object>> verificationMethods =
+                (List<Map<String, Object>>) didDocument.get("verificationMethod");
+        assertEquals(1, verificationMethods.size());
+        assertEquals("Ed25519VerificationKey2020", verificationMethods.get(0).get("type"));
+        assertEquals("z6Mkuw2HXTbK7fXoVbiuriHdm3NDDcVRYWxRymfzdTE6ZWgQ",
+                verificationMethods.get(0).get("publicKeyMultibase"));
+        assertEquals(didUrl + "#ed25519-kid", verificationMethods.get(0).get("id"));
+        assertEquals(List.of(didUrl + "#ed25519-kid"), didDocument.get("authentication"));
+        assertEquals(List.of(didUrl + "#ed25519-kid"), didDocument.get("assertionMethod"));
     }
 }

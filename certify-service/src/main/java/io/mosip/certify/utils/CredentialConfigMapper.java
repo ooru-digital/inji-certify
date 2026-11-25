@@ -27,6 +27,7 @@ public interface CredentialConfigMapper {
     @Mapping(target = "proofTypesSupported", ignore = true)
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToEntity")
     @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "issuerId", defaultExpression = "java(io.mosip.certify.core.constants.IssuerConstants.DEFAULT_ISSUER_ID)")
     CredentialConfig toEntity(CredentialConfigurationDTO dto);
 
     // Convert Entity to DTO
@@ -36,6 +37,7 @@ public interface CredentialConfigMapper {
     @Mapping(target = "displayOrder", source = "order")
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToDto")
     @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "issuerId", source = "issuerId")
     CredentialConfigurationDTO toDto(CredentialConfig entity);
 
     @Mapping(target = "configId", ignore = true)
@@ -51,6 +53,7 @@ public interface CredentialConfigMapper {
     @Mapping(target = "proofTypesSupported", ignore = true)
     @Mapping(target = "msoMdocClaims", source = "msoMdocClaims", qualifiedByName = "mapClaimsToEntity")
     @Mapping(target = "claims", source = "claims")
+    @Mapping(target = "issuerId", ignore = true)
     void updateEntityFromDto(CredentialConfigurationDTO dto, @MappingTarget CredentialConfig entity);
 
     Claims toEntity(ClaimsDisplayFieldsConfigDTO dto);

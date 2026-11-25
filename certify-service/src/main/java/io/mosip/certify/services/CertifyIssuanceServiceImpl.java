@@ -19,10 +19,14 @@ import io.mosip.certify.core.spi.CredentialLedgerService;
 import io.mosip.certify.core.spi.VCIssuanceService;
 import io.mosip.certify.credential.Credential;
 import io.mosip.certify.credential.CredentialFactory;
+import io.mosip.certify.credential.MDocCredential;
+import io.mosip.certify.core.dto.CredentialStatusDetail;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
+import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.mdoc.MdocDsKeyMaterial;
+import io.mosip.certify.mdoc.MdocPkiService;
 import io.mosip.certify.utils.CredentialUtils;
-import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.utils.LedgerUtils;
 import io.mosip.certify.utils.VCIssuanceUtil;
 import io.mosip.certify.vcformatters.VCFormatter;
@@ -87,10 +91,11 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     @Qualifier("certifyPixelPass")
     private PixelPass pixelPass;
 
-    private Map<String, Object> didDocument;
-
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
+
+    @Autowired
+    private IssuerResolver issuerResolver;
 
     @Value("${mosip.certify.identifier}")
     private String certifyIssuer;
@@ -102,7 +107,10 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
     private String domainUrl;
 
     @Autowired
-    private DIDDocumentUtil didDocumentUtil;
+    private DidDocumentService didDocumentService;
+
+    @Autowired
+    private MdocPkiService mdocPkiService;
 
     @Autowired
     private LedgerUtils ledgerUtils;
@@ -133,8 +141,10 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
         // 2. Scope Validation
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim,
+                credentialRequest.getProofs());
         CredentialConfigurationSupported credentialConfigurationSupported = null;
-        CredentialIssuerMetadataDTO credentialIssuerMetadataDTO = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO credentialIssuerMetadataDTO = credentialConfigurationService.fetchCredentialIssuerMetadata(issuer.getIssuerId());
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialConfigurationSupported> result = getScopeCredentialMapping(
                     scope, credentialRequest.getCredentialConfigId(), credentialIssuerMetadataDTO);
@@ -201,7 +211,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 AuditHelper.buildAuditDto(accessTokenHash, "accessTokenHash"), null);
 
         for (String holderId : holderIds) {
-            vcResults.add(getVerifiableCredential(credentialConfigurationSupported, holderId));
+            vcResults.add(getVerifiableCredential(credentialConfigurationSupported, holderId, issuer));
         }
 
         auditWrapper.logAudit(Action.VC_ISSUANCE, ActionStatus.SUCCESS,
@@ -211,11 +221,16 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument() {
-        didDocument = didDocumentUtil.generateDIDDocument(didUrl);
-        return didDocument;
+        return getDIDDocument(null);
     }
 
-    private VCResult<?> getVerifiableCredential(CredentialConfigurationSupported credentialConfigurationSupported, String holderId) {
+    @Override
+    public Map<String, Object> getDIDDocument(String issuerId) {
+        return didDocumentService.getDIDDocument(issuerId);
+    }
+
+    private VCResult<?> getVerifiableCredential(CredentialConfigurationSupported credentialConfigurationSupported,
+                                                  String holderId, Issuer issuer) {
         parsedAccessToken.getClaims().put("accessTokenHash", parsedAccessToken.getAccessTokenHash());
         VCRequestDto vcRequestDto = new VCRequestDto();
         vcRequestDto.setFormat(credentialConfigurationSupported.getFormat());
@@ -234,7 +249,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 case VCFormats.LDP_VC:
                     vcRequestDto.setContext(credentialConfigurationSupported.getContext());
                     vcRequestDto.setType(credentialConfigurationSupported.getTypes());
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     jsonObject.put(Constants.TYPE, credentialConfigurationSupported.getTypes());
 
                     List<String> credentialStatusPurposeList = vcFormatter.getCredentialStatusPurpose(templateName);
@@ -244,22 +259,22 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                         if(!isLedgerEnabled) {
                             log.warn("Ledger feature is currently disabled. Since revocation is enabled, please note that searching for VCs to revoke within Certify is not available.");
                         }
-                        statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst());
+                        statusListCredentialService.addCredentialStatus(jsonObject, credentialStatusPurposeList.getFirst(), issuer);
                     }
                     break;
 
                 case VCFormats.DC_SD_JWT:
                     vcRequestDto.setVct(credentialConfigurationSupported.getVct());
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     templateParams.put(Constants.VCTYPE, vcRequestDto.getVct());
                     templateParams.put(Constants.CONFIRMATION, Map.of("kid", holderId));
-                    templateParams.put(Constants.ISSUER, certifyIssuer);
+                    templateParams.put(Constants.ISSUER, issuer.getIdentifier());
                     jsonObject.put(Constants.TYPE, vcRequestDto.getVct());
                     break;
 
                 case VCFormats.MSO_MDOC:
                     vcRequestDto.setDoctype(credentialConfigurationSupported.getDocType());
-                    templateName = CredentialUtils.getTemplateName(vcRequestDto);
+                    templateName = CredentialUtils.getTemplateName(vcRequestDto, issuer.getIssuerId());
                     templateParams.put("_doctype", vcRequestDto.getDoctype());
                     jsonObject.put(Constants.TYPE, vcRequestDto.getDoctype());
                     break;
@@ -270,7 +285,7 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
             }
             // Common logic for all formats
             templateParams.put(Constants.TEMPLATE_NAME, templateName);
-            templateParams.put(Constants.DID_URL, didUrl);
+            templateParams.put(Constants.DID_URL, issuer.getDidUrl());
             if (!StringUtils.isEmpty(renderTemplateId)) {
                 templateParams.put(Constants.RENDERING_TEMPLATE_ID, renderTemplateId);
             }
@@ -333,10 +348,28 @@ public class CertifyIssuanceServiceImpl implements VCIssuanceService {
                 }
                 CredentialStatusDetail credentialStatusDetail = ledgerUtils.extractCredentialStatusDetails(jsonObject);
                 LocalDateTime issuanceDate = LocalDateTime.parse(time, DateTimeFormatter.ofPattern(Constants.UTC_DATETIME_PATTERN));
-                credentialLedgerService.storeLedgerEntry(credentialId, didUrl, credentialType, credentialStatusDetail, indexedAttributes, issuanceDate);
+                credentialLedgerService.storeLedgerEntry(credentialId, issuer.getDidUrl(), credentialType, credentialStatusDetail, indexedAttributes, issuanceDate);
                 log.info("Successfully stored the credential issuance data in ledger with credentialType: {}", credentialType);
             }
-            VCResult<?> result = cred.addProof(unsignedCredential, "", vcFormatter.getProofAlgorithm(templateName), vcFormatter.getAppID(templateName), vcFormatter.getRefID(templateName), vcFormatter.getDidUrl(templateName), vcFormatter.getSignatureCryptoSuite(templateName));
+            String proofAlgorithm = vcFormatter.getProofAlgorithm(templateName);
+            String appId = vcFormatter.getAppID(templateName);
+            String refId = vcFormatter.getRefID(templateName);
+            VCResult<?> result;
+            // mso_mdoc must be signed with issuer Document Signer (EC P-256), not LDP DID keys.
+            if (VCFormats.MSO_MDOC.equals(format) && StringUtils.isNotBlank(issuer.getMdocDsAppId())) {
+                MdocDsKeyMaterial keyMaterial = mdocPkiService.getDocumentSignerKeyMaterial(issuer);
+                log.info("Signing OID4VCI mdoc with issuer DS subject={}, issuer={}",
+                        keyMaterial.certificate().getSubjectX500Principal().getName(),
+                        keyMaterial.certificate().getIssuerX500Principal().getName());
+                if (!(cred instanceof MDocCredential mDocCredential)) {
+                    throw new CertifyException(ErrorConstants.VC_ISSUANCE_FAILED,
+                            "Expected MDocCredential handler for mso_mdoc format");
+                }
+                result = mDocCredential.addProofWithLocalDs(unsignedCredential, keyMaterial);
+            } else {
+                result = cred.addProof(unsignedCredential, "", proofAlgorithm, appId, refId,
+                        issuer.getDidUrl(), vcFormatter.getSignatureCryptoSuite(templateName));
+            }
 
             jsonObject.remove(VCDM2Constants.CREDENTIAL_STATUS);
             return result;

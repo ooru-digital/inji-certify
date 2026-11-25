@@ -18,6 +18,7 @@ import io.mosip.certify.core.exception.InvalidRequestException;
 import io.mosip.certify.core.exception.NotAuthenticatedException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.spi.VCIssuanceService;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import io.mosip.certify.utils.VCIssuanceUtil;
@@ -52,6 +53,12 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
     @Autowired
     private CredentialConfigurationService credentialConfigurationService;
 
+    @Autowired
+    private IssuerResolver issuerResolver;
+
+    @Autowired
+    private DidDocumentService didDocumentService;
+
     @Override
     public CredentialResponse getCredential(CredentialRequest credentialRequest) {
         List<VCResult<?>> vcResults = new ArrayList<>();
@@ -60,8 +67,10 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
             throw new NotAuthenticatedException();
 
         String scopeClaim = (String) parsedAccessToken.getClaims().getOrDefault("scope", "");
+        Issuer issuer = issuerResolver.resolve(credentialRequest.getIssuerId(), scopeClaim,
+                credentialRequest.getProofs());
         CredentialConfigurationSupported credentialConfigurationSupported = null;
-        CredentialIssuerMetadataDTO credentialIssuerMetadataDTO = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO credentialIssuerMetadataDTO = credentialConfigurationService.fetchCredentialIssuerMetadata(issuer.getIssuerId());
 
         for(String scope : scopeClaim.split(Constants.SPACE)) {
             Optional<CredentialConfigurationSupported> result = VCIssuanceUtil.getScopeCredentialMapping(
@@ -136,7 +145,12 @@ public class VCIssuanceServiceImpl implements VCIssuanceService {
 
     @Override
     public Map<String, Object> getDIDDocument() {
-        throw new InvalidRequestException(ErrorConstants.UNSUPPORTED_IN_CURRENT_PLUGIN_MODE);
+        return getDIDDocument(null);
+    }
+
+    @Override
+    public Map<String, Object> getDIDDocument(String issuerId) {
+        return didDocumentService.getDIDDocument(issuerId);
     }
 
     private VCResult<?> getVerifiableCredential(CredentialConfigurationSupported credentialConfigurationSupported,
