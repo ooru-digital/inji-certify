@@ -9,9 +9,15 @@ public interface CredentialConfigurationService {
 
     CredentialConfigurationDTO getCredentialConfigurationById(String id) throws JsonProcessingException;
 
+    java.util.List<CredentialConfigurationDTO> listCredentialConfigurations(String issuerId) throws JsonProcessingException;
+
     CredentialConfigResponse updateCredentialConfiguration(String id, CredentialConfigurationDTO credentialConfigurationDTO) throws JsonProcessingException;
 
     String deleteCredentialConfigurationById(String id);
 
-    CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata();
+    /** All active configurations of the issuer; used when issuing. Blank issuerId means the default issuer. */
+    CredentialIssuerMetadataDTO fetchCredentialIssuerMetadata(String issuerId);
+
+    /** Metadata advertised to wallets, restricted to the configured well-known formats. */
+    CredentialIssuerMetadataDTO fetchWellKnownMetadata(String issuerId);
 }

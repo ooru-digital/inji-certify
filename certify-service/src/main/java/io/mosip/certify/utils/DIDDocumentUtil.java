@@ -18,6 +18,8 @@ import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
 import io.mosip.certify.core.dto.CertificateResponseDTO;
 import io.mosip.certify.entity.CredentialConfig;
+import io.mosip.certify.entity.Issuer;
+import io.mosip.certify.entity.attributes.MetaDataDisplay;
 import io.mosip.certify.repository.CredentialConfigRepository;
 import io.mosip.kernel.keymanagerservice.dto.AllCertificatesDataResponseDto;
 import io.mosip.kernel.keymanagerservice.dto.CertificateDataResponseDto;
@@ -27,11 +29,13 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import io.ipfs.multibase.Multibase;
 import io.mosip.certify.core.constants.ErrorConstants;
 import io.mosip.certify.core.constants.SignatureAlg;
+import io.mosip.certify.core.constants.VCFormats;
 import io.mosip.certify.core.exception.CertifyException;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.util.BigIntegers;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Component
@@ -57,23 +61,6 @@ public class DIDDocumentUtil {
         this.credentialConfigRepository = credentialConfigRepository;
     }
 
-    public Map<String, Object> generateDIDDocument(String didUrl) {
-        Map<String, Object> didDocument = initializeDIDDocument(didUrl);
-        Set<String> contextList = initializeContextList();
-
-        Map<String, List<String>> credentialConfigMap = getSignatureCryptoSuiteMap();
-        Set<String> uniqueIds = new HashSet<>();
-
-        List<Map<String, Object>> verificationMethods = credentialConfigMap.entrySet().stream()
-                .flatMap(entry -> processCredentialConfig(entry, didUrl, uniqueIds, contextList))
-                .collect(Collectors.toList());
-
-        didDocument.put("verificationMethod", verificationMethods);
-        didDocument.put("@context", new ArrayList<>(contextList));
-
-        return didDocument;
-    }
-
     private Map<String, Object> initializeDIDDocument(String didUrl) {
         Map<String, Object> didDocument = new HashMap<>();
         didDocument.put("alsoKnownAs", new ArrayList<>());
@@ -88,6 +75,82 @@ public class DIDDocumentUtil {
         Set<String> contextList = new LinkedHashSet<>();
         contextList.add(DID_CONTEXT);
         return contextList;
+    }
+
+    public Map<String, Object> generateDIDDocument(String didUrl) {
+        return generateDIDDocument(didUrl, null, null);
+    }
+
+    public Map<String, Object> generateDIDDocument(String didUrl, String issuerId) {
+        return generateDIDDocument(didUrl, issuerId, null);
+    }
+
+    /**
+     * Builds a DID document for an onboarded issuer, seeding verification methods from
+     * the issuer signing keys and merging any unique keys from credential configs.
+     */
+    public Map<String, Object> generateDIDDocument(Issuer issuer) {
+        return generateDIDDocument(issuer.getDidUrl(), issuer.getIssuerId(), issuer);
+    }
+
+    public Map<String, Object> generateDIDDocument(String didUrl, String issuerId, Issuer issuer) {
+        Map<String, Object> didDocument = initializeDIDDocument(didUrl);
+        didDocument.put("alsoKnownAs", resolveAlsoKnownAs(issuer));
+        Set<String> contextList = initializeContextList();
+
+        Map<String, List<String>> keySourceMap = new LinkedHashMap<>();
+        seedIssuerSigningKeys(keySourceMap, issuer);
+        keySourceMap.putAll(getSignatureCryptoSuiteMap(issuerId));
+
+        Set<String> uniqueIds = new HashSet<>();
+        List<Map<String, Object>> verificationMethods = keySourceMap.entrySet().stream()
+                .flatMap(entry -> processCredentialConfig(entry, didUrl, uniqueIds, contextList))
+                .collect(Collectors.toList());
+
+        didDocument.put("verificationMethod", verificationMethods);
+        didDocument.put("@context", new ArrayList<>(contextList));
+        List<String> verificationMethodIds = verificationMethods.stream()
+                .map(vm -> (String) vm.get("id"))
+                .collect(Collectors.toList());
+        didDocument.put("authentication", verificationMethodIds.isEmpty()
+                ? Collections.singletonList(didUrl) : verificationMethodIds);
+        didDocument.put("assertionMethod", verificationMethodIds.isEmpty()
+                ? Collections.singletonList(didUrl) : verificationMethodIds);
+
+        return didDocument;
+    }
+
+    private void seedIssuerSigningKeys(Map<String, List<String>> keySourceMap, Issuer issuer) {
+        if (issuer == null || !StringUtils.hasText(issuer.getKeyManagerAppId())) {
+            return;
+        }
+        String signatureAlgo = issuer.getSignatureAlgo();
+        if (!StringUtils.hasText(signatureAlgo)) {
+            log.warn("Skipping issuer signing keys for DID document; signature algorithm unresolved for issuer {}",
+                    issuer.getIssuerId());
+            return;
+        }
+        String appId = issuer.getKeyManagerAppId();
+        String refId = issuer.getKeyManagerRefId();
+        String uniqueKey = appId + "-" + (refId != null ? refId : "");
+        List<String> keyParams = new ArrayList<>();
+        keyParams.add(appId);
+        keyParams.add(refId);
+        keyParams.add(signatureAlgo);
+        keyParams.add(issuer.getSignatureCryptoSuite());
+        keySourceMap.put(uniqueKey, keyParams);
+    }
+
+    private List<String> resolveAlsoKnownAs(Issuer issuer) {
+        if (issuer == null || issuer.getDisplay() == null) {
+            return new ArrayList<>();
+        }
+        return issuer.getDisplay().stream()
+                .map(MetaDataDisplay::getName)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .map(name -> new ArrayList<>(List.of(name)))
+                .orElseGet(ArrayList::new);
     }
 
     private Stream<Map<String, Object>> processCredentialConfig(
@@ -282,13 +345,23 @@ public class DIDDocumentUtil {
         return certificateResponseDTO;
     }
 
-    private Map<String, List<String>> getSignatureCryptoSuiteMap() {
-        // Fetch all credential configurations
-        List<CredentialConfig> allConfigs = credentialConfigRepository.findAll();
+    private Map<String, List<String>> getSignatureCryptoSuiteMap(String issuerId) {
+        List<CredentialConfig> allConfigs;
+        if (issuerId != null && !issuerId.isBlank()) {
+            allConfigs = credentialConfigRepository.findByIssuerIdAndStatus(
+                    issuerId, io.mosip.certify.core.constants.Constants.ACTIVE);
+        } else {
+            allConfigs = credentialConfigRepository.findAll();
+        }
 
-        // Create a map with signatureCryptoSuite as the key and appId, refId as values
-        Map<String, List<String>> signatureCryptoSuiteMap = new HashMap<>();
+        // Create a map keyed by appId-refId with [appId, refId, signatureAlgo].
+        // mso_mdoc is excluded: it uses issuer DS/IACA PKI (ISO 18013-5), not DID verification methods.
+        Map<String, List<String>> signatureCryptoSuiteMap = new LinkedHashMap<>();
         for (CredentialConfig config : allConfigs) {
+            if (VCFormats.MSO_MDOC.equals(config.getCredentialFormat())) {
+                continue;
+            }
+
             String appId = config.getKeyManagerAppId();
             String refId = config.getKeyManagerRefId();
 

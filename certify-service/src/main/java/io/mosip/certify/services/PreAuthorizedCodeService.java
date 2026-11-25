@@ -111,7 +111,7 @@ public class PreAuthorizedCodeService {
     }
 
     private void validatePreAuthorizedRequest(PreAuthorizedRequest request) {
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
         Map<String, CredentialConfigurationSupportedDTO> supportedConfigs = metadata
                 .getCredentialConfigurationSupportedDTO();
 

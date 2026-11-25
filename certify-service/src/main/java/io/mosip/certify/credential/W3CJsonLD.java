@@ -19,7 +19,6 @@ import io.mosip.certify.core.dto.CertificateResponseDTO;
 import io.mosip.certify.proofgenerators.ProofGeneratorFactory;
 import io.mosip.certify.proofgenerators.dataintegrity.KeymanagerByteSigner;
 import io.mosip.certify.proofgenerators.dataintegrity.KeymanagerByteSignerFactory;
-import io.mosip.certify.services.CertifyIssuanceServiceImpl;
 import io.mosip.certify.utils.CredentialUtils;
 import io.mosip.certify.utils.DIDDocumentUtil;
 import io.mosip.certify.vcformatters.VCFormatter;

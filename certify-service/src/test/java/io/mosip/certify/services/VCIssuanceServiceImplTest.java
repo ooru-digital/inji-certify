@@ -30,6 +30,7 @@ import io.mosip.certify.core.exception.InvalidRequestException;
 import io.mosip.certify.core.exception.NotAuthenticatedException;
 import io.mosip.certify.core.spi.CredentialConfigurationService;
 import io.mosip.certify.core.util.SecurityHelperService;
+import io.mosip.certify.entity.Issuer;
 import io.mosip.certify.proof.ProofValidator;
 import io.mosip.certify.proof.ProofValidatorFactory;
 import org.junit.Before;
@@ -67,7 +68,13 @@ public class VCIssuanceServiceImplTest {
     @Mock
     private ProofValidator proofValidator;
     @Mock
-    private CredentialConfigurationService credentialConfigurationService; // Added mock
+    private CredentialConfigurationService credentialConfigurationService;
+
+    @Mock
+    private IssuerResolver issuerResolver;
+
+    @Mock
+    private DidDocumentService didDocumentService;
 
     @InjectMocks
     private VCIssuanceServiceImpl issuanceService;
@@ -153,8 +160,16 @@ public class VCIssuanceServiceImplTest {
 
 
         mockGlobalCredentialIssuerMetadataDTO.setCredentialConfigurationSupportedDTO(supportedCredsMap);
-        when(credentialConfigurationService.fetchCredentialIssuerMetadata())
+        when(credentialConfigurationService.fetchCredentialIssuerMetadata("default"))
                 .thenReturn(mockGlobalCredentialIssuerMetadataDTO);
+
+        Issuer defaultIssuer = new Issuer();
+        defaultIssuer.setIssuerId("default");
+        defaultIssuer.setIdentifier("https://test.issuer.com");
+        defaultIssuer.setDidUrl("https://test.issuer.com");
+        defaultIssuer.setCredentialIssuerUrl("https://test.issuer.com");
+        defaultIssuer.setStatus("active");
+        when(issuerResolver.resolve(nullable(String.class), any(), any())).thenReturn(defaultIssuer);
     }
 
     private CredentialRequest createValidCredentialRequest(String format) throws Exception {
@@ -482,9 +497,23 @@ public class VCIssuanceServiceImplTest {
     }
 
     @Test
-    public void getDIDDocument_ThrowsUnsupportedException() {
-        InvalidRequestException ex = assertThrows(InvalidRequestException.class, () -> issuanceService.getDIDDocument());
-        assertEquals(ErrorConstants.UNSUPPORTED_IN_CURRENT_PLUGIN_MODE, ex.getErrorCode());
+    public void getDIDDocument_returnsDocumentForIssuer() {
+        Map<String, Object> didDocument = Map.of("id", "did:web:example.com:issuers:DEFAU-RPHHS");
+        when(didDocumentService.getDIDDocument("DEFAU-RPHHS")).thenReturn(didDocument);
+
+        Map<String, Object> result = issuanceService.getDIDDocument("DEFAU-RPHHS");
+
+        assertEquals("did:web:example.com:issuers:DEFAU-RPHHS", result.get("id"));
+        verify(didDocumentService).getDIDDocument("DEFAU-RPHHS");
+    }
+
+    @Test
+    public void getDIDDocument_nullIssuerId_delegatesToDidDocumentService() {
+        Map<String, Object> didDocument = Map.of("id", "did:web:example.com");
+        when(didDocumentService.getDIDDocument(null)).thenReturn(didDocument);
+
+        assertEquals("did:web:example.com", issuanceService.getDIDDocument().get("id"));
+        verify(didDocumentService).getDIDDocument(null);
     }
 
     @Test

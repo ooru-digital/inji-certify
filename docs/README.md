@@ -11,6 +11,16 @@
 - [Inji Verify as a Library](./technical_docs/Inji_Verify_As_A_Library.md)
 - [DPoP Support (RFC 9449)](./technical_docs/DPoP_Support.md)
 
+## Multi-Issuer Support
+
+- [Multi-Issuer Overview](./multi-issuer/README.md)
+- [Current Architecture (Single Issuer)](./multi-issuer/Current-Architecture.md)
+- [Issuer Flow (OID4VCI)](./multi-issuer/Issuer-Flow.md)
+- [Gap Analysis](./multi-issuer/Gap-Analysis.md)
+- [Implementation Plan](./multi-issuer/Multi-issuer-impl-plan.md)
+- [Proof `aud` issuer resolution](./multi-issuer/Proof-Aud-Issuer-Resolution.md)
+
+
 # Integrator READMEs
 
 # Postman Collections

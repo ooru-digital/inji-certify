@@ -44,6 +44,12 @@ public class CredentialConfigMetadataAttributesTest {
     @Mock
     private CredentialConfigMapper credentialConfigMapper;
 
+    @Mock
+    private IssuerResolver issuerResolver;
+
+    @Mock
+    private io.mosip.certify.repository.IssuerRepository issuerRepository;
+
     @InjectMocks
     private CredentialConfigurationServiceImpl credentialConfigurationService;
 
@@ -86,6 +92,13 @@ public class CredentialConfigMetadataAttributesTest {
         ReflectionTestUtils.setField(credentialConfigurationService, "proofTypesSupported", proofTypes);
         ReflectionTestUtils.setField(credentialConfigurationService, "keyAliasMapper", keyAliasMapper);
         ReflectionTestUtils.setField(credentialConfigurationService, "authorizationServerMapping", Map.of());
+
+        io.mosip.certify.entity.Issuer issuer = new io.mosip.certify.entity.Issuer();
+        issuer.setIssuerId("default");
+        issuer.setCredentialIssuerUrl("http://example.com/");
+        issuer.setStatus("active");
+        org.mockito.Mockito.lenient().when(issuerResolver.resolveIssuerId(org.mockito.ArgumentMatchers.any())).thenReturn("default");
+        org.mockito.Mockito.lenient().when(issuerResolver.resolve(org.mockito.ArgumentMatchers.<String>any())).thenReturn(issuer);
     }
 
     /**
@@ -1146,10 +1159,10 @@ public class CredentialConfigMetadataAttributesTest {
         stored.setCredentialSigningAlgValuesSupported(List.of("EdDSA"));
         stored.setProofTypesSupported(new LinkedHashMap<>(Map.of("jwt", Map.of(PROOF_SIGNING_ALGS, List.of("EdDSA")))));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(stored));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(stored));
         when(credentialConfigMapper.toDto(stored)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         CredentialConfigurationSupportedDTO supported =
                 metadata.getCredentialConfigurationSupportedDTO().get("test-credential");
@@ -1168,10 +1181,10 @@ public class CredentialConfigMetadataAttributesTest {
         CredentialConfig stored = storedLdpVcEntity();
         stored.setCredentialSigningAlgValuesSupported(List.of("RS256", "EdDSA"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(stored));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(stored));
         when(credentialConfigMapper.toDto(stored)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         Assert.assertEquals(List.of("Ed25519Signature2020"),
                 metadata.getCredentialConfigurationSupportedDTO().get("test-credential").getCredentialSigningAlgValuesSupported());
@@ -1206,10 +1219,10 @@ public class CredentialConfigMetadataAttributesTest {
             configs.add(config);
             when(credentialConfigMapper.toDto(config)).thenReturn(ldpVcConfig());
         });
-        when(credentialConfigRepository.findAll()).thenReturn(configs);
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(configs);
 
         Map<String, CredentialConfigurationSupportedDTO> supported =
-                credentialConfigurationService.fetchCredentialIssuerMetadata().getCredentialConfigurationSupportedDTO();
+                credentialConfigurationService.fetchCredentialIssuerMetadata(null).getCredentialConfigurationSupportedDTO();
 
         Assert.assertEquals(algorithmBySuite.keySet(), supported.keySet());
         algorithmBySuite.keySet().forEach(suite ->
@@ -1227,12 +1240,12 @@ public class CredentialConfigMetadataAttributesTest {
         CredentialConfig msoMdoc = msoMdocEntity();
         msoMdoc.setCredentialSigningAlgValuesSupported(List.of("ES256"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(sdJwt, msoMdoc));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(sdJwt, msoMdoc));
         when(credentialConfigMapper.toDto(sdJwt)).thenReturn(sdJwtConfig());
         when(credentialConfigMapper.toDto(msoMdoc)).thenReturn(msoMdocConfig());
 
         Map<String, CredentialConfigurationSupportedDTO> supported =
-                credentialConfigurationService.fetchCredentialIssuerMetadata().getCredentialConfigurationSupportedDTO();
+                credentialConfigurationService.fetchCredentialIssuerMetadata(null).getCredentialConfigurationSupportedDTO();
 
         Assert.assertEquals(List.of("ES256"), supported.get("test-sd-jwt").getCredentialSigningAlgValuesSupported());
         Assert.assertEquals(List.of(-7), supported.get("test-mso-mdoc").getCredentialSigningAlgValuesSupported());
@@ -1249,10 +1262,10 @@ public class CredentialConfigMetadataAttributesTest {
         ldpVc.setCryptographicBindingMethodsSupported(List.of("did:jwk"));
         ldpVc.setCredentialSigningAlgValuesSupported(List.of("Ed25519Signature2020"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(ldpVc));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(ldpVc));
         when(credentialConfigMapper.toDto(ldpVc)).thenReturn(ldpVcConfig());
 
-        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata()
+        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata(null)
                 .getCredentialConfigurationSupportedDTO().get("test-credential");
 
         Assert.assertEquals(List.of("Ed25519Signature2020"), supported.getCredentialSigningAlgValuesSupported());
@@ -1269,10 +1282,10 @@ public class CredentialConfigMetadataAttributesTest {
         sdJwt.setCryptographicBindingMethodsSupported(List.of("did:jwk"));
         sdJwt.setCredentialSigningAlgValuesSupported(List.of());
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(sdJwt));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(sdJwt));
         when(credentialConfigMapper.toDto(sdJwt)).thenReturn(sdJwtConfig());
 
-        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata()
+        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata(null)
                 .getCredentialConfigurationSupportedDTO().get("test-sd-jwt");
 
         Assert.assertNotNull(supported);
@@ -1290,10 +1303,10 @@ public class CredentialConfigMetadataAttributesTest {
         msoMdoc.setCryptographicBindingMethodsSupported(List.of("cose_key"));
         msoMdoc.setCredentialSigningAlgValuesSupported(List.of());
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(msoMdoc));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(msoMdoc));
         when(credentialConfigMapper.toDto(msoMdoc)).thenReturn(msoMdocConfig());
 
-        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata()
+        CredentialConfigurationSupportedDTO supported = credentialConfigurationService.fetchCredentialIssuerMetadata(null)
                 .getCredentialConfigurationSupportedDTO().get("test-mso-mdoc");
 
         Assert.assertNotNull(supported);
@@ -1311,10 +1324,10 @@ public class CredentialConfigMetadataAttributesTest {
         legacy.setCryptographicBindingMethodsSupported(List.of("did:jwk"));
         legacy.setCredentialSigningAlgValuesSupported(List.of("Ed25519Signature2020"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(legacy));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(legacy));
         when(credentialConfigMapper.toDto(legacy)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         CredentialConfigurationSupportedDTO supported =
                 metadata.getCredentialConfigurationSupportedDTO().get("test-credential");
@@ -1335,10 +1348,10 @@ public class CredentialConfigMetadataAttributesTest {
         legacy.setSignatureCryptoSuite("EcdsaSecp256r1Signature2019");
         legacy.setCredentialSigningAlgValuesSupported(List.of("EcdsaSecp256r1Signature2019"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(legacy));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(legacy));
         when(credentialConfigMapper.toDto(legacy)).thenReturn(msoMdocConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         Assert.assertEquals(List.of(-7),
                 metadata.getCredentialConfigurationSupportedDTO().get("test-mso-mdoc").getCredentialSigningAlgValuesSupported());
@@ -1357,10 +1370,10 @@ public class CredentialConfigMetadataAttributesTest {
         bare.put("jwt", Map.of());
         legacy.setProofTypesSupported(bare);
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(legacy));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(legacy));
         when(credentialConfigMapper.toDto(legacy)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         Assert.assertEquals(Map.of("jwt", Map.of(PROOF_SIGNING_ALGS, List.of("RS256", "PS256", "ES256", "EdDSA"))),
                 metadata.getCredentialConfigurationSupportedDTO().get("test-credential").getProofTypesSupported());
@@ -1378,11 +1391,11 @@ public class CredentialConfigMetadataAttributesTest {
         CredentialConfig healthy = ldpVcEntity();
         healthy.setCredentialSigningAlgValuesSupported(List.of("EdDSA"));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(legacy, healthy));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(legacy, healthy));
         when(credentialConfigMapper.toDto(legacy)).thenReturn(msoMdocConfig());
         when(credentialConfigMapper.toDto(healthy)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         Assert.assertEquals(Set.of("test-credential"), metadata.getCredentialConfigurationSupportedDTO().keySet());
     }
@@ -1402,11 +1415,11 @@ public class CredentialConfigMetadataAttributesTest {
         CredentialConfig healthy = ldpVcEntity();
         healthy.setProofTypesSupported(new LinkedHashMap<>(Map.of("jwt", Map.of(PROOF_SIGNING_ALGS, List.of("EdDSA")))));
 
-        when(credentialConfigRepository.findAll()).thenReturn(List.of(broken, healthy));
+        when(credentialConfigRepository.findByIssuerIdAndStatus("default", "active")).thenReturn(List.of(broken, healthy));
         when(credentialConfigMapper.toDto(broken)).thenReturn(sdJwtConfig());
         when(credentialConfigMapper.toDto(healthy)).thenReturn(ldpVcConfig());
 
-        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata();
+        CredentialIssuerMetadataDTO metadata = credentialConfigurationService.fetchCredentialIssuerMetadata(null);
 
         Assert.assertEquals(Set.of("test-credential"), metadata.getCredentialConfigurationSupportedDTO().keySet());
     }
